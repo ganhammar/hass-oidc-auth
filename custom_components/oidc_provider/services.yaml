@@ -1,0 +1,29 @@
+register_client:
+  name: Register OIDC Client
+  description: Register a new OIDC client application
+  fields:
+    client_name:
+      name: Client Name
+      description: Display name for the client application
+      required: true
+      example: "Claude Connector"
+      selector:
+        text:
+    redirect_uris:
+      name: Redirect URIs
+      description: Comma-separated list of allowed redirect URIs
+      required: true
+      example: "https://app.example.com/callback"
+      selector:
+        text:
+
+revoke_client:
+  name: Revoke OIDC Client
+  description: Revoke an existing OIDC client
+  fields:
+    client_id:
+      name: Client ID
+      description: The client ID to revoke
+      required: true
+      selector:
+        text:

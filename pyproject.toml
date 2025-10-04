@@ -1,0 +1,42 @@
+[tool.poetry]
+name = "hass-oidc-provider"
+version = "0.1.0"
+description = "OpenID Connect Provider for Home Assistant"
+authors = ["ganhammar"]
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.12"
+PyJWT = "^2.8.0"
+cryptography = "^43.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+pytest-asyncio = "^0.24.0"
+pytest-cov = "^6.0.0"
+aiohttp = "^3.9.0"
+black = "^25.9.0"
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 100
+target-version = ['py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
