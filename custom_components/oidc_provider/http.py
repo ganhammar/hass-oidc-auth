@@ -78,7 +78,7 @@ class OIDCAuthorizationView(HomeAssistantView):
 
     url = "/auth/oidc/authorize"
     name = "api:oidc:authorize"
-    requires_auth = False
+    requires_auth = True
 
     async def get(self, request: web.Request) -> web.Response:
         """Handle authorization request."""
@@ -103,30 +103,16 @@ class OIDCAuthorizationView(HomeAssistantView):
         if redirect_uri not in client["redirect_uris"]:
             return web.Response(text="Invalid redirect_uri", status=400)
 
-        # Check if user is authenticated
-        if request.get("hass_user") is None:
-            # Redirect to HA login with return URL
-            login_url = (
-                f"/auth/authorize?client_id={client_id}&redirect_uri={redirect_uri}"
-                f"&response_type={response_type}&scope={scope}&state={state}"
-            )
-            redirect_script = (
-                f"<html><body>Redirecting to login..."
-                f'<script>window.location.href="/?auth_callback={login_url}";</script>'
-                f"</body></html>"
-            )
-            return web.Response(
-                text=redirect_script,
-                content_type="text/html",
-            )
+        # User is authenticated (guaranteed by requires_auth=True)
+        user = request["hass_user"]
 
-        # User is authenticated, generate authorization code
+        # Generate authorization code
         auth_code = secrets.token_urlsafe(32)
         hass.data[DOMAIN]["authorization_codes"][auth_code] = {
             "client_id": client_id,
             "redirect_uri": redirect_uri,
             "scope": scope,
-            "user_id": request["hass_user"].id,
+            "user_id": user.id,
             "expires_at": time.time() + AUTHORIZATION_CODE_EXPIRY,
         }
 
