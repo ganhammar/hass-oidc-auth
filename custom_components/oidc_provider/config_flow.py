@@ -39,10 +39,6 @@ class OIDCProviderConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class OIDCProviderOptionsFlow(config_entries.OptionsFlow):
     """Handle options flow for OIDC Provider."""
 
-    def __init__(self, config_entry):
-        """Initialize options flow."""
-        self.config_entry = config_entry
-
     async def async_step_init(self, user_input=None):
         """Manage the options."""
         return self.async_show_form(step_id="init")

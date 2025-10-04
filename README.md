@@ -38,18 +38,18 @@ A Home Assistant custom component that turns your Home Assistant instance into a
 
 To register a new OIDC client (e.g., for Claude Connectors):
 
-1. Go to **Developer Tools** → **Services**
-2. Select `oidc_provider.register_client`
+1. Go to **Developer Tools** → **Actions**
+2. In the action dropdown, select **"Register OIDC Client"** (or type `oidc_provider.register_client`)
 3. Fill in the fields:
    - **Client Name**: A friendly name (e.g., "Claude Connector")
    - **Redirect URIs**: Comma-separated list of allowed redirect URIs
-4. Click **Call Service**
+4. Click **"Perform Action"**
 5. Check the Home Assistant logs for the generated **Client ID** and **Client Secret**
 
-Example service call:
+Example action call:
 
 ```yaml
-service: oidc_provider.register_client
+action: oidc_provider.register_client
 data:
   client_name: "Claude Connector"
   redirect_uris: "https://claude.ai/callback,https://app.claude.com/callback"
@@ -71,7 +71,7 @@ Redirect URIs: ['https://claude.ai/callback', 'https://app.claude.com/callback']
 To revoke an existing client:
 
 ```yaml
-service: oidc_provider.revoke_client
+action: oidc_provider.revoke_client
 data:
   client_id: "client_xxxxxxxxxxxxx"
 ```

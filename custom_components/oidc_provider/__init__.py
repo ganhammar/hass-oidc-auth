@@ -33,27 +33,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register services
     async def handle_register_client(call):
         """Handle register_client service."""
-        import secrets
+        try:
+            import secrets
 
-        client_name = call.data.get("client_name")
-        redirect_uris = call.data.get("redirect_uris", "").split(",")
-        redirect_uris = [uri.strip() for uri in redirect_uris if uri.strip()]
+            _LOGGER.debug("handle_register_client called with data: %s", call.data)
 
-        client_id = f"client_{secrets.token_urlsafe(16)}"
-        client_secret = secrets.token_urlsafe(32)
+            client_name = call.data.get("client_name")
+            redirect_uris = call.data.get("redirect_uris", "").split(",")
+            redirect_uris = [uri.strip() for uri in redirect_uris if uri.strip()]
 
-        hass.data[DOMAIN]["clients"][client_id] = {
-            "client_name": client_name,
-            "client_secret": client_secret,
-            "redirect_uris": redirect_uris,
-        }
+            client_id = f"client_{secrets.token_urlsafe(16)}"
+            client_secret = secrets.token_urlsafe(32)
 
-        _LOGGER.info(
-            f"Registered OIDC client: {client_name}\n"
-            f"Client ID: {client_id}\n"
-            f"Client Secret: {client_secret}\n"
-            f"Redirect URIs: {redirect_uris}"
-        )
+            hass.data[DOMAIN]["clients"][client_id] = {
+                "client_name": client_name,
+                "client_secret": client_secret,
+                "redirect_uris": redirect_uris,
+            }
+
+            _LOGGER.warning(
+                "Registered OIDC client: %s | Client ID: %s | Client Secret: %s | Redirect URIs: %s",
+                client_name,
+                client_id,
+                client_secret,
+                redirect_uris,
+            )
+        except Exception as e:
+            _LOGGER.error("Error registering OIDC client: %s", e, exc_info=True)
 
     async def handle_revoke_client(call):
         """Handle revoke_client service."""
