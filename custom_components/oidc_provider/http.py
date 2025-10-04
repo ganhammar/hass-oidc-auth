@@ -39,27 +39,10 @@ def setup_http_endpoints(hass: HomeAssistant) -> None:
 
     # Register views
     hass.http.register_view(OIDCDiscoveryView())
-    hass.http.register_view(OIDCLoginView())
     hass.http.register_view(OIDCAuthorizationView())
     hass.http.register_view(OIDCTokenView())
     hass.http.register_view(OIDCUserInfoView())
     hass.http.register_view(OIDCJWKSView())
-
-
-class OIDCLoginView(HomeAssistantView):
-    """OIDC Login redirect view - requires auth and redirects to authorize endpoint."""
-
-    url = "/auth/oidc/login"
-    name = "api:oidc:login"
-    requires_auth = True
-
-    async def get(self, request: web.Request) -> web.Response:
-        """Redirect authenticated user to authorize endpoint with original params."""
-        # Get all query params and forward them to the authorize endpoint
-        query_string = request.query_string
-        authorize_url = f"/auth/oidc/authorize?{query_string}"
-
-        return web.Response(status=302, headers={"Location": authorize_url})
 
 
 class OIDCDiscoveryView(HomeAssistantView):
@@ -75,7 +58,7 @@ class OIDCDiscoveryView(HomeAssistantView):
 
         discovery = {
             "issuer": base_url,
-            "authorization_endpoint": f"{base_url}/auth/oidc/login",  # Use login endpoint
+            "authorization_endpoint": f"{base_url}/auth/oidc/authorize",
             "token_endpoint": f"{base_url}/auth/oidc/token",
             "userinfo_endpoint": f"{base_url}/auth/oidc/userinfo",
             "jwks_uri": f"{base_url}/auth/oidc/jwks",
@@ -99,18 +82,41 @@ class OIDCAuthorizationView(HomeAssistantView):
 
     async def get(self, request: web.Request) -> web.Response:
         """Handle authorization request."""
-        # Extract parameters
-        client_id = request.query.get("client_id")
-        redirect_uri = request.query.get("redirect_uri")
-        response_type = request.query.get("response_type")
-        scope = request.query.get("scope", "")
-        state = request.query.get("state", "")
+        hass = request.app["hass"]
+
+        # Check if this is a continuation from the login panel
+        request_id = request.query.get("request_id")
+        if request_id:
+            pending_requests = hass.data[DOMAIN].get("pending_auth_requests", {})
+            if request_id not in pending_requests:
+                return web.Response(text="Invalid or expired request", status=400)
+
+            stored_request = pending_requests[request_id]
+            if stored_request["expires_at"] < time.time():
+                del pending_requests[request_id]
+                return web.Response(text="Request expired", status=400)
+
+            # Extract parameters from stored request
+            client_id = stored_request["client_id"]
+            redirect_uri = stored_request["redirect_uri"]
+            response_type = stored_request["response_type"]
+            scope = stored_request["scope"]
+            state = stored_request["state"]
+
+            # Clean up stored request
+            del pending_requests[request_id]
+        else:
+            # Extract parameters from query string
+            client_id = request.query.get("client_id")
+            redirect_uri = request.query.get("redirect_uri")
+            response_type = request.query.get("response_type")
+            scope = request.query.get("scope", "")
+            state = request.query.get("state", "")
 
         # Validate parameters
         if not client_id or not redirect_uri or response_type != RESPONSE_TYPE_CODE:
             return web.Response(text="Invalid request", status=400)
 
-        hass = request.app["hass"]
         clients = hass.data[DOMAIN].get("clients", {})
 
         if client_id not in clients:
@@ -122,16 +128,35 @@ class OIDCAuthorizationView(HomeAssistantView):
 
         # Check if user is authenticated
         if request.get("hass_user") is None:
-            # Redirect to HA login with return URL
-            login_url = (
-                f"/auth/authorize?client_id={client_id}&redirect_uri={redirect_uri}"
-                f"&response_type={response_type}&scope={scope}&state={state}"
-            )
-            redirect_script = (
-                f"<html><body>Redirecting to login..."
-                f'<script>window.location.href="/?auth_callback={login_url}";</script>'
-                f"</body></html>"
-            )
+            # Store request in sessionStorage and redirect to frontend panel
+            auth_request_id = secrets.token_urlsafe(16)
+
+            # Store the authorization request parameters
+            if "pending_auth_requests" not in hass.data[DOMAIN]:
+                hass.data[DOMAIN]["pending_auth_requests"] = {}
+
+            hass.data[DOMAIN]["pending_auth_requests"][auth_request_id] = {
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "response_type": response_type,
+                "scope": scope,
+                "state": state,
+                "expires_at": time.time() + 600,  # 10 minutes
+            }
+
+            # Return HTML that stores request ID in sessionStorage and redirects to panel
+            redirect_script = f"""
+            <html>
+            <head><title>OIDC Authorization</title></head>
+            <body>
+                <p>Redirecting to login...</p>
+                <script>
+                    sessionStorage.setItem('oidc_request_id', '{auth_request_id}');
+                    window.location.href = '/oidc_login';
+                </script>
+            </body>
+            </html>
+            """
             return web.Response(
                 text=redirect_script,
                 content_type="text/html",

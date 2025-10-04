@@ -2,6 +2,7 @@
 
 import logging
 
+from homeassistant.components.frontend import async_register_built_in_panel
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
@@ -37,6 +38,44 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .http import setup_http_endpoints
 
     setup_http_endpoints(hass)
+
+    # Register frontend panel for OIDC auth flow
+    async_register_built_in_panel(
+        hass,
+        component_name="custom",
+        sidebar_title="OIDC Login",
+        sidebar_icon="mdi:login",
+        frontend_url_path="oidc_login",
+        config={
+            "_panel_custom": {
+                "name": "oidc-login-panel",
+                "embed_iframe": False,
+                "html": """
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>OIDC Authorization</title>
+                    </head>
+                    <body>
+                        <script>
+                            // Get the auth request ID from sessionStorage
+                            const requestId = sessionStorage.getItem('oidc_request_id');
+                            if (requestId) {
+                                // Redirect to authorize endpoint with the request ID
+                                const url = '/auth/oidc/authorize?request_id=' + requestId;
+                                window.location.href = url;
+                            } else {
+                                const msg = '<p>No pending authorization request found.</p>';
+                                document.body.innerHTML = msg;
+                            }
+                        </script>
+                    </body>
+                    </html>
+                """,
+            }
+        },
+        require_admin=False,
+    )
 
     # Register services
     async def handle_register_client(call):
