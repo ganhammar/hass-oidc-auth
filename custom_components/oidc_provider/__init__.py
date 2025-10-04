@@ -3,9 +3,12 @@
 import logging
 
 from homeassistant.components.frontend import async_register_built_in_panel
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
+
+from .http import setup_http_endpoints
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,9 +38,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN]["store"] = store
 
     # Register HTTP endpoints
-    from .http import setup_http_endpoints
-
     setup_http_endpoints(hass)
+
+    # Register static path for panel JS
+    await hass.http.async_register_static_paths(
+        [
+            StaticPathConfig(
+                "/oidc_provider",
+                str(hass.config.path(f"custom_components/{DOMAIN}/www")),
+                cache_headers=False,
+            )
+        ]
+    )
 
     # Register frontend panel for OIDC auth flow
     async_register_built_in_panel(
@@ -50,28 +62,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "_panel_custom": {
                 "name": "oidc-login-panel",
                 "embed_iframe": False,
-                "html": """
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                        <title>OIDC Authorization</title>
-                    </head>
-                    <body>
-                        <script>
-                            // Get the auth request ID from sessionStorage
-                            const requestId = sessionStorage.getItem('oidc_request_id');
-                            if (requestId) {
-                                // Redirect to authorize endpoint with the request ID
-                                const url = '/auth/oidc/authorize?request_id=' + requestId;
-                                window.location.href = url;
-                            } else {
-                                const msg = '<p>No pending authorization request found.</p>';
-                                document.body.innerHTML = msg;
-                            }
-                        </script>
-                    </body>
-                    </html>
-                """,
+                "js_url": "/oidc_provider/oidc-login-panel.js",
             }
         },
         require_admin=False,
