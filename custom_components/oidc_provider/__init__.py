@@ -51,12 +51,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ]
     )
 
-    # Register frontend panel for OIDC auth flow
+    # Register frontend panel for OIDC auth flow (hidden from sidebar)
     async_register_built_in_panel(
         hass,
         component_name="custom",
-        sidebar_title="OIDC Login",
-        sidebar_icon="mdi:login",
+        sidebar_title=None,  # Hidden from sidebar
+        sidebar_icon=None,
         frontend_url_path="oidc_login",
         config={
             "_panel_custom": {
