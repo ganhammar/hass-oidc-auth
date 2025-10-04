@@ -2,11 +2,8 @@
 
 import logging
 
-import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, SupportsResponse
-from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers import selector
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 _LOGGER = logging.getLogger(__name__)
@@ -211,50 +208,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         _LOGGER.info("Listed %d OIDC clients", len(clients))
 
-    def get_client_selector():
-        """Get selector with current clients."""
-        clients = hass.data[DOMAIN].get("clients", {})
-        options = [
-            selector.SelectOptionDict(
-                value=client_id, label=f"{client_data['client_name']} ({client_id})"
-            )
-            for client_id, client_data in clients.items()
-        ]
-        return selector.SelectSelector(
-            selector.SelectSelectorConfig(
-                options=options, mode=selector.SelectSelectorMode.DROPDOWN
-            )
-        )
-
-    # Service schemas
-    revoke_schema = vol.Schema(
-        {
-            vol.Required("client_id"): get_client_selector(),
-        }
-    )
-
-    update_schema = vol.Schema(
-        {
-            vol.Required("client_id"): get_client_selector(),
-            vol.Required("redirect_uris"): cv.string,
-        }
-    )
-
     hass.services.async_register(DOMAIN, "register_client", handle_register_client)
-    hass.services.async_register(
-        DOMAIN,
-        "revoke_client",
-        handle_revoke_client,
-        schema=revoke_schema,
-        supports_response=SupportsResponse.NONE,
-    )
-    hass.services.async_register(
-        DOMAIN,
-        "update_client",
-        handle_update_client,
-        schema=update_schema,
-        supports_response=SupportsResponse.NONE,
-    )
+    hass.services.async_register(DOMAIN, "revoke_client", handle_revoke_client)
+    hass.services.async_register(DOMAIN, "update_client", handle_update_client)
     hass.services.async_register(DOMAIN, "list_clients", handle_list_clients)
 
     _LOGGER.info("OIDC Provider initialized")
