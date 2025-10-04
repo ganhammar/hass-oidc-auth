@@ -4,10 +4,13 @@ import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
 
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "oidc_provider"
+STORAGE_VERSION = 1
+STORAGE_KEY = f"{DOMAIN}.clients"
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -20,10 +23,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up OIDC Provider from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
+    # Initialize storage
+    store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
+    stored_data = await store.async_load()
+
     # Store clients and tokens
-    hass.data[DOMAIN]["clients"] = {}
+    hass.data[DOMAIN]["clients"] = stored_data.get("clients", {}) if stored_data else {}
     hass.data[DOMAIN]["authorization_codes"] = {}
     hass.data[DOMAIN]["refresh_tokens"] = {}
+    hass.data[DOMAIN]["store"] = store
 
     # Register HTTP endpoints
     from .http import setup_http_endpoints
@@ -42,6 +50,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             redirect_uris = call.data.get("redirect_uris", "").split(",")
             redirect_uris = [uri.strip() for uri in redirect_uris if uri.strip()]
 
+            # Check if client with same name already exists
+            existing_clients = hass.data[DOMAIN].get("clients", {})
+            for existing_client in existing_clients.values():
+                if existing_client["client_name"] == client_name:
+                    error_msg = f"Client with name '{client_name}' already exists"
+                    _LOGGER.error(error_msg)
+                    await hass.services.async_call(
+                        "persistent_notification",
+                        "create",
+                        {
+                            "title": "OIDC Client Registration Failed",
+                            "message": f"❌ {error_msg}\n\nPlease choose a different client name.",
+                            "notification_id": f"oidc_client_error_{client_name}",
+                        },
+                    )
+                    return
+
             client_id = f"client_{secrets.token_urlsafe(16)}"
             client_secret = secrets.token_urlsafe(32)
 
@@ -50,6 +75,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "client_secret": client_secret,
                 "redirect_uris": redirect_uris,
             }
+
+            # Save to storage
+            store = hass.data[DOMAIN]["store"]
+            await store.async_save({"clients": hass.data[DOMAIN]["clients"]})
 
             # Create persistent notification with credentials
             try:
@@ -89,6 +118,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         if client_id in hass.data[DOMAIN]["clients"]:
             del hass.data[DOMAIN]["clients"][client_id]
+
+            # Save to storage
+            store = hass.data[DOMAIN]["store"]
+            await store.async_save({"clients": hass.data[DOMAIN]["clients"]})
+
             _LOGGER.info(f"Revoked OIDC client: {client_id}")
         else:
             _LOGGER.warning(f"Client ID not found: {client_id}")
