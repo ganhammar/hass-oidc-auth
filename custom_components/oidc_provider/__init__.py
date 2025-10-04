@@ -3,7 +3,7 @@
 import logging
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, SupportsResponse
 from homeassistant.helpers.storage import Store
 
 _LOGGER = logging.getLogger(__name__)
@@ -222,14 +222,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "revoke_client",
         handle_revoke_client,
         schema=None,
-        supports_response=hass.services.SupportsResponse.NONE,
+        supports_response=SupportsResponse.NONE,
     )
     hass.services.async_register(
         DOMAIN,
         "update_client",
         handle_update_client,
         schema=None,
-        supports_response=hass.services.SupportsResponse.NONE,
+        supports_response=SupportsResponse.NONE,
     )
     hass.services.async_register(DOMAIN, "list_clients", handle_list_clients)
 
