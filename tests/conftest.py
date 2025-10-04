@@ -1,8 +1,8 @@
 """Pytest configuration and fixtures."""
 
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import Mock, AsyncMock, MagicMock
-from aiohttp.test_utils import TestClient
 
 
 @pytest.fixture

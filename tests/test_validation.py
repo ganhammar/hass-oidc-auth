@@ -1,7 +1,5 @@
 """Test validation logic."""
 
-import pytest
-
 
 def test_duplicate_client_name_detection():
     """Test that duplicate client names are detected."""

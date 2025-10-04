@@ -1,11 +1,12 @@
 """Test token generation and validation."""
 
-import pytest
-import jwt
 import time
+
+import jwt
+import pytest
+from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.backends import default_backend
 
 
 def test_jwt_token_generation():

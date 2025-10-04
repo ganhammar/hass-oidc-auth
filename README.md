@@ -66,9 +66,30 @@ Redirect URIs: ['https://claude.ai/callback', 'https://app.claude.com/callback']
 
 **Important**: Save these credentials securely. The client secret cannot be retrieved later.
 
+### Updating a Client
+
+To update redirect URIs for an existing client:
+
+1. Use **"List OIDC Clients"** to find the client ID
+2. Go to **Developer Tools** → **Actions**
+3. Select **"Update OIDC Client"**
+4. Enter the client ID and new redirect URIs
+
+```yaml
+action: oidc_provider.update_client
+data:
+  client_id: "client_xxxxxxxxxxxxx"
+  redirect_uris: "https://new-app.example.com/callback,http://localhost:8080/auth"
+```
+
 ### Revoking a Client
 
 To revoke an existing client:
+
+1. Use **"List OIDC Clients"** to find the client ID
+2. Go to **Developer Tools** → **Actions**
+3. Select **"Revoke OIDC Client"**
+4. Enter the client ID
 
 ```yaml
 action: oidc_provider.revoke_client
@@ -159,6 +180,18 @@ poetry run pytest tests/ --cov=custom_components/oidc_provider --cov-report=term
 
 ```bash
 poetry run black custom_components/ tests/
+```
+
+### Linting
+
+```bash
+poetry run ruff check custom_components/ tests/
+```
+
+To auto-fix issues:
+
+```bash
+poetry run ruff check custom_components/ tests/ --fix
 ```
 
 ## License

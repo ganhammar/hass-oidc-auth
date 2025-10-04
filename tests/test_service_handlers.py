@@ -10,7 +10,6 @@ def test_client_registration_flow():
     redirect_uris_input = "https://example.com/callback"
     redirect_uris = [uri.strip() for uri in redirect_uris_input.split(",") if uri.strip()]
 
-    client_id = f"client_{secrets.token_urlsafe(16)}"
     client_secret = secrets.token_urlsafe(32)
 
     client_data = {
@@ -135,3 +134,133 @@ def test_multiple_redirect_uris():
     assert len(redirect_uris) == 2
     assert "https://example.com/callback" in redirect_uris
     assert "http://localhost:3000/auth" in redirect_uris
+
+
+def test_update_client_redirect_uris():
+    """Test updating client redirect URIs."""
+    clients = {
+        "client_abc123": {
+            "client_name": "Test Client",
+            "client_secret": "secret123",
+            "redirect_uris": ["https://old.example.com/callback"],
+        }
+    }
+
+    client_id = "client_abc123"
+    new_redirect_uris_input = "https://new.example.com/callback,http://localhost:3000/auth"
+    new_redirect_uris = [uri.strip() for uri in new_redirect_uris_input.split(",") if uri.strip()]
+
+    # Check client exists
+    assert client_id in clients
+
+    # Update redirect URIs
+    clients[client_id]["redirect_uris"] = new_redirect_uris
+
+    # Verify update
+    assert len(clients[client_id]["redirect_uris"]) == 2
+    assert "https://new.example.com/callback" in clients[client_id]["redirect_uris"]
+    assert "http://localhost:3000/auth" in clients[client_id]["redirect_uris"]
+    assert "https://old.example.com/callback" not in clients[client_id]["redirect_uris"]
+
+
+def test_update_client_not_found():
+    """Test updating non-existent client."""
+    clients = {
+        "client_abc123": {
+            "client_name": "Test Client",
+            "client_secret": "secret123",
+            "redirect_uris": ["https://example.com/callback"],
+        }
+    }
+
+    client_id = "client_nonexistent"
+
+    # Check client doesn't exist
+    assert client_id not in clients
+
+
+def test_update_client_single_redirect_uri():
+    """Test updating client with single redirect URI."""
+    clients = {
+        "client_abc123": {
+            "client_name": "Test Client",
+            "client_secret": "secret123",
+            "redirect_uris": ["https://old.example.com/callback", "http://localhost:3000"],
+        }
+    }
+
+    client_id = "client_abc123"
+    new_redirect_uris_input = "https://single.example.com/callback"
+    new_redirect_uris = [uri.strip() for uri in new_redirect_uris_input.split(",") if uri.strip()]
+
+    # Update to single URI
+    clients[client_id]["redirect_uris"] = new_redirect_uris
+
+    # Verify update
+    assert len(clients[client_id]["redirect_uris"]) == 1
+    assert clients[client_id]["redirect_uris"][0] == "https://single.example.com/callback"
+
+
+def test_update_client_empty_redirect_uris():
+    """Test updating client with empty redirect URIs."""
+    clients = {
+        "client_abc123": {
+            "client_name": "Test Client",
+            "client_secret": "secret123",
+            "redirect_uris": ["https://example.com/callback"],
+        }
+    }
+
+    client_id = "client_abc123"
+    new_redirect_uris_input = ""
+    new_redirect_uris = [uri.strip() for uri in new_redirect_uris_input.split(",") if uri.strip()]
+
+    # Update with empty list
+    clients[client_id]["redirect_uris"] = new_redirect_uris
+
+    # Verify update
+    assert len(clients[client_id]["redirect_uris"]) == 0
+
+
+def test_update_preserves_client_secret():
+    """Test that updating redirect URIs doesn't affect client secret."""
+    clients = {
+        "client_abc123": {
+            "client_name": "Test Client",
+            "client_secret": "secret123",
+            "redirect_uris": ["https://old.example.com/callback"],
+        }
+    }
+
+    client_id = "client_abc123"
+    original_secret = clients[client_id]["client_secret"]
+    new_redirect_uris = ["https://new.example.com/callback"]
+
+    # Update redirect URIs
+    clients[client_id]["redirect_uris"] = new_redirect_uris
+
+    # Verify secret unchanged
+    assert clients[client_id]["client_secret"] == original_secret
+    assert clients[client_id]["client_secret"] == "secret123"
+
+
+def test_update_preserves_client_name():
+    """Test that updating redirect URIs doesn't affect client name."""
+    clients = {
+        "client_abc123": {
+            "client_name": "Test Client",
+            "client_secret": "secret123",
+            "redirect_uris": ["https://old.example.com/callback"],
+        }
+    }
+
+    client_id = "client_abc123"
+    original_name = clients[client_id]["client_name"]
+    new_redirect_uris = ["https://new.example.com/callback"]
+
+    # Update redirect URIs
+    clients[client_id]["redirect_uris"] = new_redirect_uris
+
+    # Verify name unchanged
+    assert clients[client_id]["client_name"] == original_name
+    assert clients[client_id]["client_name"] == "Test Client"

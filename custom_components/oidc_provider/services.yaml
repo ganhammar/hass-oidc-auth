@@ -19,16 +19,36 @@ register_client:
 
 revoke_client:
   name: Revoke OIDC Client
-  description: Revoke an existing OIDC client
+  description: Revoke an existing OIDC client. Use "List OIDC Clients" to see all client IDs.
   fields:
     client_id:
       name: Client ID
-      description: The client ID to revoke
+      description: The client ID to revoke (copy from "List OIDC Clients" action)
       required: true
+      example: "client_abc123xyz"
+      selector:
+        text:
+
+update_client:
+  name: Update OIDC Client
+  description: Update redirect URIs for an existing OIDC client. Use "List OIDC Clients" to see all client IDs.
+  fields:
+    client_id:
+      name: Client ID
+      description: The client ID to update (copy from "List OIDC Clients" action)
+      required: true
+      example: "client_abc123xyz"
+      selector:
+        text:
+    redirect_uris:
+      name: Redirect URIs
+      description: Comma-separated list of allowed redirect URIs
+      required: true
+      example: "https://app.example.com/callback,http://localhost:3000/auth"
       selector:
         text:
 
 list_clients:
   name: List OIDC Clients
-  description: Display all registered OIDC clients (client secrets are hidden)
+  description: Display all registered OIDC clients with their IDs and redirect URIs (client secrets are hidden)
   fields: {}

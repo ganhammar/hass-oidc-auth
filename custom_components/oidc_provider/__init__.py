@@ -103,7 +103,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.error("Failed to create notification: %s", notif_error)
 
             _LOGGER.info(
-                "Registered OIDC client: %s | Client ID: %s | Client Secret: %s | Redirect URIs: %s",
+                "Registered OIDC client: %s | Client ID: %s | Client Secret: %s | "
+                "Redirect URIs: %s",
                 client_name,
                 client_id,
                 client_secret,
@@ -126,6 +127,50 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.info(f"Revoked OIDC client: {client_id}")
         else:
             _LOGGER.warning(f"Client ID not found: {client_id}")
+
+    async def handle_update_client(call):
+        """Handle update_client service."""
+        client_id = call.data.get("client_id")
+        redirect_uris_input = call.data.get("redirect_uris", "")
+        redirect_uris = [uri.strip() for uri in redirect_uris_input.split(",") if uri.strip()]
+
+        if client_id not in hass.data[DOMAIN]["clients"]:
+            error_msg = f"Client ID '{client_id}' not found"
+            _LOGGER.error(error_msg)
+            await hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {
+                    "title": "OIDC Client Update Failed",
+                    "message": f"❌ {error_msg}",
+                    "notification_id": f"oidc_update_error_{client_id}",
+                },
+            )
+            return
+
+        # Update redirect URIs
+        hass.data[DOMAIN]["clients"][client_id]["redirect_uris"] = redirect_uris
+
+        # Save to storage
+        store = hass.data[DOMAIN]["store"]
+        await store.async_save({"clients": hass.data[DOMAIN]["clients"]})
+
+        client_name = hass.data[DOMAIN]["clients"][client_id]["client_name"]
+
+        await hass.services.async_call(
+            "persistent_notification",
+            "create",
+            {
+                "title": "OIDC Client Updated",
+                "message": (
+                    f"**Updated Client: {client_name}**\n\n"
+                    f"**Client ID:** `{client_id}`\n\n"
+                    f"**New Redirect URIs:** {', '.join(redirect_uris)}"
+                ),
+                "notification_id": f"oidc_update_{client_id}",
+            },
+        )
+        _LOGGER.info("Updated OIDC client: %s with new redirect URIs: %s", client_id, redirect_uris)
 
     async def handle_list_clients(call):
         """Handle list_clients service."""
@@ -163,8 +208,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         _LOGGER.info("Listed %d OIDC clients", len(clients))
 
+    def get_client_options(call):
+        """Return options for client selection."""
+        clients = hass.data[DOMAIN].get("clients", {})
+        return [
+            {"value": client_id, "label": f"{client_data['client_name']} ({client_id})"}
+            for client_id, client_data in clients.items()
+        ]
+
     hass.services.async_register(DOMAIN, "register_client", handle_register_client)
-    hass.services.async_register(DOMAIN, "revoke_client", handle_revoke_client)
+    hass.services.async_register(
+        DOMAIN,
+        "revoke_client",
+        handle_revoke_client,
+        schema=None,
+        supports_response=hass.services.SupportsResponse.NONE,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        "update_client",
+        handle_update_client,
+        schema=None,
+        supports_response=hass.services.SupportsResponse.NONE,
+    )
     hass.services.async_register(DOMAIN, "list_clients", handle_list_clients)
 
     _LOGGER.info("OIDC Provider initialized")

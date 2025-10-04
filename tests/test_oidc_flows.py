@@ -1,7 +1,7 @@
 """Test OIDC flow logic."""
 
-import time
 import secrets
+import time
 
 
 def test_authorization_code_generation():

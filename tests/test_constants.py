@@ -5,7 +5,6 @@ def test_constants():
     """Test constants are defined correctly."""
     # Import constants directly to avoid HA dependency chain
     import importlib.util
-    import sys
     from pathlib import Path
 
     spec = importlib.util.spec_from_file_location(

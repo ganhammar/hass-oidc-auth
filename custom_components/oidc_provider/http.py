@@ -7,20 +7,19 @@ from typing import Any
 
 import jwt
 from aiohttp import web
+from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.backends import default_backend
-
-from homeassistant.core import HomeAssistant
 from homeassistant.components.http import HomeAssistantView
+from homeassistant.core import HomeAssistant
 
 from .const import (
-    DOMAIN,
     ACCESS_TOKEN_EXPIRY,
     AUTHORIZATION_CODE_EXPIRY,
-    REFRESH_TOKEN_EXPIRY,
+    DOMAIN,
     GRANT_TYPE_AUTHORIZATION_CODE,
     GRANT_TYPE_REFRESH_TOKEN,
+    REFRESH_TOKEN_EXPIRY,
     RESPONSE_TYPE_CODE,
     SUPPORTED_SCOPES,
 )
@@ -107,9 +106,17 @@ class OIDCAuthorizationView(HomeAssistantView):
         # Check if user is authenticated
         if request.get("hass_user") is None:
             # Redirect to HA login with return URL
-            login_url = f"/auth/authorize?client_id={client_id}&redirect_uri={redirect_uri}&response_type={response_type}&scope={scope}&state={state}"
+            login_url = (
+                f"/auth/authorize?client_id={client_id}&redirect_uri={redirect_uri}"
+                f"&response_type={response_type}&scope={scope}&state={state}"
+            )
+            redirect_script = (
+                f"<html><body>Redirecting to login..."
+                f'<script>window.location.href="/?auth_callback={login_url}";</script>'
+                f"</body></html>"
+            )
             return web.Response(
-                text=f'<html><body>Redirecting to login...<script>window.location.href="/?auth_callback={login_url}";</script></body></html>',
+                text=redirect_script,
                 content_type="text/html",
             )
 
