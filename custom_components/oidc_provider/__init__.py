@@ -52,16 +52,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             }
 
             # Create persistent notification with credentials
-            hass.components.persistent_notification.async_create(
-                f"**OIDC Client Registered: {client_name}**\n\n"
-                f"**Client ID:** `{client_id}`\n\n"
-                f"**Client Secret:** `{client_secret}`\n\n"
-                f"**Redirect URIs:** {', '.join(redirect_uris)}\n\n"
-                f"⚠️ **Important:** Save these credentials now. "
-                f"The client secret cannot be retrieved later.",
-                title="OIDC Client Registered",
-                notification_id=f"oidc_client_{client_id}",
-            )
+            try:
+                await hass.services.async_call(
+                    "persistent_notification",
+                    "create",
+                    {
+                        "title": "OIDC Client Registered",
+                        "message": (
+                            f"**OIDC Client Registered: {client_name}**\n\n"
+                            f"**Client ID:** `{client_id}`\n\n"
+                            f"**Client Secret:** `{client_secret}`\n\n"
+                            f"**Redirect URIs:** {', '.join(redirect_uris)}\n\n"
+                            f"⚠️ **Important:** Save these credentials now. "
+                            f"The client secret cannot be retrieved later."
+                        ),
+                        "notification_id": f"oidc_client_{client_id}",
+                    },
+                )
+                _LOGGER.info("Notification created for client registration")
+            except Exception as notif_error:
+                _LOGGER.error("Failed to create notification: %s", notif_error)
 
             _LOGGER.info(
                 "Registered OIDC client: %s | Client ID: %s | Client Secret: %s | Redirect URIs: %s",
