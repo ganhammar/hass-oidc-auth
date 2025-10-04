@@ -31,3 +31,4 @@ revoke_client:
 list_clients:
   name: List OIDC Clients
   description: Display all registered OIDC clients (client secrets are hidden)
+  fields: {}
