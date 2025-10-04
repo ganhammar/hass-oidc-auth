@@ -39,27 +39,10 @@ def setup_http_endpoints(hass: HomeAssistant) -> None:
 
     # Register views
     hass.http.register_view(OIDCDiscoveryView())
-    hass.http.register_view(OIDCLoginView())
     hass.http.register_view(OIDCAuthorizationView())
     hass.http.register_view(OIDCTokenView())
     hass.http.register_view(OIDCUserInfoView())
     hass.http.register_view(OIDCJWKSView())
-
-
-class OIDCLoginView(HomeAssistantView):
-    """OIDC Login redirect view - requires auth and redirects to authorize endpoint."""
-
-    url = "/auth/oidc/login"
-    name = "api:oidc:login"
-    requires_auth = True
-
-    async def get(self, request: web.Request) -> web.Response:
-        """Redirect authenticated user to authorize endpoint with original params."""
-        # Get all query params and forward them to the authorize endpoint
-        query_string = request.query_string
-        authorize_url = f"/auth/oidc/authorize?{query_string}"
-
-        return web.Response(status=302, headers={"Location": authorize_url})
 
 
 class OIDCDiscoveryView(HomeAssistantView):
@@ -75,7 +58,7 @@ class OIDCDiscoveryView(HomeAssistantView):
 
         discovery = {
             "issuer": base_url,
-            "authorization_endpoint": f"{base_url}/auth/oidc/login",  # Use login endpoint
+            "authorization_endpoint": f"{base_url}/auth/oidc/authorize",
             "token_endpoint": f"{base_url}/auth/oidc/token",
             "userinfo_endpoint": f"{base_url}/auth/oidc/userinfo",
             "jwks_uri": f"{base_url}/auth/oidc/jwks",
