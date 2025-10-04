@@ -27,3 +27,7 @@ revoke_client:
       required: true
       selector:
         text:
+
+list_clients:
+  name: List OIDC Clients
+  description: Display all registered OIDC clients (client secrets are hidden)

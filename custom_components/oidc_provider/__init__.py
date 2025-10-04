@@ -93,8 +93,45 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         else:
             _LOGGER.warning(f"Client ID not found: {client_id}")
 
+    async def handle_list_clients(call):
+        """Handle list_clients service."""
+        clients = hass.data[DOMAIN].get("clients", {})
+
+        if not clients:
+            await hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {
+                    "title": "OIDC Registered Clients",
+                    "message": "No clients registered.",
+                    "notification_id": "oidc_list_clients",
+                },
+            )
+            return
+
+        message_parts = ["**Registered OIDC Clients:**\n"]
+        for client_id, client_data in clients.items():
+            message_parts.append(
+                f"\n**{client_data['client_name']}**\n"
+                f"- Client ID: `{client_id}`\n"
+                f"- Redirect URIs: {', '.join(client_data['redirect_uris'])}\n"
+                f"- ⚠️ Client Secret: Hidden (cannot be retrieved)\n"
+            )
+
+        await hass.services.async_call(
+            "persistent_notification",
+            "create",
+            {
+                "title": "OIDC Registered Clients",
+                "message": "\n".join(message_parts),
+                "notification_id": "oidc_list_clients",
+            },
+        )
+        _LOGGER.info("Listed %d OIDC clients", len(clients))
+
     hass.services.async_register(DOMAIN, "register_client", handle_register_client)
     hass.services.async_register(DOMAIN, "revoke_client", handle_revoke_client)
+    hass.services.async_register(DOMAIN, "list_clients", handle_list_clients)
 
     _LOGGER.info("OIDC Provider initialized")
     return True
