@@ -57,6 +57,7 @@ def setup_http_endpoints(hass: HomeAssistant) -> None:
     hass.http.register_view(OIDCTokenView())
     hass.http.register_view(OIDCUserInfoView())
     hass.http.register_view(OIDCJWKSView())
+    hass.http.register_view(OIDCRegisterView())
 
 
 class OIDCContinueView(HomeAssistantView):
@@ -135,12 +136,24 @@ class OIDCDiscoveryView(HomeAssistantView):
             "token_endpoint": f"{base_url}/auth/oidc/token",
             "userinfo_endpoint": f"{base_url}/auth/oidc/userinfo",
             "jwks_uri": f"{base_url}/auth/oidc/jwks",
+            "registration_endpoint": f"{base_url}/auth/oidc/register",
             "response_types_supported": ["code"],
             "subject_types_supported": ["public"],
             "id_token_signing_alg_values_supported": ["RS256"],
             "scopes_supported": SUPPORTED_SCOPES,
-            "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
-            "claims_supported": ["sub", "name", "email", "iss", "aud", "exp", "iat"],
+            "token_endpoint_auth_methods_supported": [
+                "client_secret_post",
+                "client_secret_basic",
+            ],
+            "claims_supported": [
+                "sub",
+                "name",
+                "email",
+                "iss",
+                "aud",
+                "exp",
+                "iat",
+            ],
             "code_challenge_methods_supported": SUPPORTED_CODE_CHALLENGE_METHODS,
         }
 
@@ -604,3 +617,99 @@ class OIDCJWKSView(HomeAssistantView):
         }
 
         return web.json_response(jwks)
+
+
+class OIDCRegisterView(HomeAssistantView):
+    """OAuth 2.0 Dynamic Client Registration endpoint (RFC 7591)."""
+
+    url = "/auth/oidc/register"
+    name = "api:oidc:register"
+    requires_auth = False
+
+    async def post(self, request: web.Request) -> web.Response:
+        """Handle client registration request."""
+        hass = request.app["hass"]
+
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response(
+                {"error": "invalid_request", "error_description": "Invalid JSON"},
+                status=400,
+            )
+
+        # Validate required fields
+        redirect_uris = data.get("redirect_uris")
+        if not redirect_uris or not isinstance(redirect_uris, list):
+            return web.json_response(
+                {
+                    "error": "invalid_redirect_uri",
+                    "error_description": "redirect_uris is required and must be an array",
+                },
+                status=400,
+            )
+
+        # Extract client metadata
+        client_name = data.get("client_name", "Dynamically Registered Client")
+        grant_types = data.get("grant_types", ["authorization_code", "refresh_token"])
+        response_types = data.get("response_types", ["code"])
+        token_endpoint_auth_method = data.get("token_endpoint_auth_method", "client_secret_basic")
+
+        # Validate grant types
+        supported_grant_types = ["authorization_code", "refresh_token"]
+        if not all(gt in supported_grant_types for gt in grant_types):
+            supported = ", ".join(supported_grant_types)
+            return web.json_response(
+                {
+                    "error": "invalid_client_metadata",
+                    "error_description": f"Unsupported grant types. Supported: {supported}",
+                },
+                status=400,
+            )
+
+        # Validate response types
+        if not all(rt in ["code"] for rt in response_types):
+            return web.json_response(
+                {
+                    "error": "invalid_client_metadata",
+                    "error_description": "Only 'code' response type is supported",
+                },
+                status=400,
+            )
+
+        # Generate client credentials
+        client_id = secrets.token_urlsafe(32)
+        client_secret = secrets.token_urlsafe(48)
+
+        # Hash the client secret
+        from .security import hash_client_secret
+
+        client_secret_hash = hash_client_secret(client_secret)
+
+        # Store client
+        if "clients" not in hass.data[DOMAIN]:
+            hass.data[DOMAIN]["clients"] = {}
+
+        hass.data[DOMAIN]["clients"][client_id] = {
+            "client_name": client_name,
+            "client_secret_hash": client_secret_hash,
+            "redirect_uris": redirect_uris,
+            "grant_types": grant_types,
+            "response_types": response_types,
+            "token_endpoint_auth_method": token_endpoint_auth_method,
+        }
+
+        # Return client credentials (RFC 7591 response)
+        response_data = {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "client_name": client_name,
+            "redirect_uris": redirect_uris,
+            "grant_types": grant_types,
+            "response_types": response_types,
+            "token_endpoint_auth_method": token_endpoint_auth_method,
+        }
+
+        _LOGGER.info("Dynamically registered client: %s", client_name)
+
+        return web.json_response(response_data, status=201)
