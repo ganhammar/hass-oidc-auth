@@ -293,8 +293,21 @@ class OIDCTokenView(HomeAssistantView):
 
         client = clients[client_id]
         # Verify client secret using constant-time comparison
-        if not verify_client_secret(client_secret, client["client_secret_hash"]):
-            _LOGGER.warning("Invalid client secret for client %s", client_id)
+        # Support both old (plain) and new (hashed) client secrets for backward compatibility
+        if "client_secret_hash" in client:
+            # New hashed format
+            if not verify_client_secret(client_secret, client["client_secret_hash"]):
+                _LOGGER.warning("Invalid client secret for client %s", client_id)
+                self._record_failed_attempt(hass, rate_limit_key, current_time)
+                return web.json_response({"error": "invalid_client"}, status=401)
+        elif "client_secret" in client:
+            # Old plain text format (backward compatibility)
+            if client["client_secret"] != client_secret:
+                _LOGGER.warning("Invalid client secret for client %s (legacy)", client_id)
+                self._record_failed_attempt(hass, rate_limit_key, current_time)
+                return web.json_response({"error": "invalid_client"}, status=401)
+        else:
+            _LOGGER.error("Client %s has no secret configured", client_id)
             self._record_failed_attempt(hass, rate_limit_key, current_time)
             return web.json_response({"error": "invalid_client"}, status=401)
 
@@ -364,25 +377,38 @@ class OIDCTokenView(HomeAssistantView):
                     status=400,
                 )
 
-            # Verify code_verifier matches code_challenge
-            code_challenge_method = auth_data.get(
-                "code_challenge_method", CODE_CHALLENGE_METHOD_S256
-            )
-            if code_challenge_method == CODE_CHALLENGE_METHOD_S256:
-                # Compute SHA256 hash of code_verifier
-                verifier_hash = hashlib.sha256(code_verifier.encode("ascii")).digest()
-                computed_challenge = (
-                    base64.urlsafe_b64encode(verifier_hash).decode("ascii").rstrip("=")
+            try:
+                # Verify code_verifier matches code_challenge
+                code_challenge_method = auth_data.get(
+                    "code_challenge_method", CODE_CHALLENGE_METHOD_S256
                 )
-            else:
-                # Plain method (not recommended, but included for spec compliance)
-                computed_challenge = code_verifier
+                if code_challenge_method == CODE_CHALLENGE_METHOD_S256:
+                    # Compute SHA256 hash of code_verifier
+                    verifier_hash = hashlib.sha256(code_verifier.encode("ascii")).digest()
+                    computed_challenge = (
+                        base64.urlsafe_b64encode(verifier_hash).decode("ascii").rstrip("=")
+                    )
+                else:
+                    # Plain method (not recommended, but included for spec compliance)
+                    computed_challenge = code_verifier
 
-            if computed_challenge != code_challenge:
+                if computed_challenge != code_challenge:
+                    del auth_codes[code]
+                    _LOGGER.warning(
+                        "PKCE verification failed for client %s - expected %s, got %s",
+                        auth_data["client_id"],
+                        code_challenge,
+                        computed_challenge,
+                    )
+                    return web.json_response(
+                        {"error": "invalid_grant", "error_description": "Invalid code_verifier"},
+                        status=400,
+                    )
+            except Exception as e:
                 del auth_codes[code]
-                _LOGGER.warning("PKCE verification failed for client %s", auth_data["client_id"])
+                _LOGGER.error("Error verifying PKCE: %s", str(e), exc_info=True)
                 return web.json_response(
-                    {"error": "invalid_grant", "error_description": "Invalid code_verifier"},
+                    {"error": "invalid_grant", "error_description": "PKCE verification error"},
                     status=400,
                 )
 
