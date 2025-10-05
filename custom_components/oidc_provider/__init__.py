@@ -62,9 +62,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         frontend_url_path="oidc_login",
         config={
             "_panel_custom": {
-                "name": "oidc-login-panel",
+                "name": "oidc-auth-panel",
                 "embed_iframe": False,
-                "js_url": f"/oidc_provider/oidc-login-panel.js?v={cache_buster}",
+                "js_url": f"/oidc_provider/oidc-auth-panel.js?v={cache_buster}",
             }
         },
         require_admin=False,

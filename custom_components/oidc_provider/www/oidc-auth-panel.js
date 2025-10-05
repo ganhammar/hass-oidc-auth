@@ -105,4 +105,4 @@ class OidcLoginPanel extends HTMLElement {
   }
 }
 
-customElements.define('oidc-login-panel', OidcLoginPanel);
+customElements.define('oidc-auth-panel', OidcLoginPanel);
