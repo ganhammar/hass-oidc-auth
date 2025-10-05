@@ -20,3 +20,13 @@ GRANT_TYPE_REFRESH_TOKEN = "refresh_token"
 
 # Response types
 RESPONSE_TYPE_CODE = "code"
+
+# PKCE code challenge methods
+CODE_CHALLENGE_METHOD_S256 = "S256"
+CODE_CHALLENGE_METHOD_PLAIN = "plain"
+SUPPORTED_CODE_CHALLENGE_METHODS = [CODE_CHALLENGE_METHOD_S256]
+
+# Rate limiting
+MAX_TOKEN_ATTEMPTS = 5  # Maximum failed attempts before rate limiting
+RATE_LIMIT_WINDOW = 300  # 5 minutes in seconds
+RATE_LIMIT_PENALTY = 60  # Lockout period in seconds after max attempts

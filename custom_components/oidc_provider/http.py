@@ -1,5 +1,8 @@
 """HTTP endpoints for OIDC Provider."""
 
+import base64
+import hashlib
+import html
 import logging
 import secrets
 import time
@@ -16,13 +19,19 @@ from homeassistant.core import HomeAssistant
 from .const import (
     ACCESS_TOKEN_EXPIRY,
     AUTHORIZATION_CODE_EXPIRY,
+    CODE_CHALLENGE_METHOD_S256,
     DOMAIN,
     GRANT_TYPE_AUTHORIZATION_CODE,
     GRANT_TYPE_REFRESH_TOKEN,
+    MAX_TOKEN_ATTEMPTS,
+    RATE_LIMIT_PENALTY,
+    RATE_LIMIT_WINDOW,
     REFRESH_TOKEN_EXPIRY,
     RESPONSE_TYPE_CODE,
+    SUPPORTED_CODE_CHALLENGE_METHODS,
     SUPPORTED_SCOPES,
 )
+from .security import verify_client_secret
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,6 +45,10 @@ def setup_http_endpoints(hass: HomeAssistant) -> None:
         )
         hass.data[DOMAIN]["jwt_private_key"] = private_key
         hass.data[DOMAIN]["jwt_public_key"] = private_key.public_key()
+
+    # Initialize rate limiting storage
+    if "rate_limit_attempts" not in hass.data[DOMAIN]:
+        hass.data[DOMAIN]["rate_limit_attempts"] = {}
 
     # Register views
     hass.http.register_view(OIDCDiscoveryView())
@@ -77,6 +90,8 @@ class OIDCContinueView(HomeAssistantView):
         redirect_uri = stored_request["redirect_uri"]
         scope = stored_request["scope"]
         state = stored_request["state"]
+        code_challenge = stored_request.get("code_challenge")
+        code_challenge_method = stored_request.get("code_challenge_method")
 
         # Clean up
         del pending_requests[request_id]
@@ -88,6 +103,8 @@ class OIDCContinueView(HomeAssistantView):
             "redirect_uri": redirect_uri,
             "scope": scope,
             "user_id": user.id,
+            "code_challenge": code_challenge,
+            "code_challenge_method": code_challenge_method,
             "expires_at": time.time() + AUTHORIZATION_CODE_EXPIRY,
         }
 
@@ -124,6 +141,7 @@ class OIDCDiscoveryView(HomeAssistantView):
             "scopes_supported": SUPPORTED_SCOPES,
             "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
             "claims_supported": ["sub", "name", "email", "iss", "aud", "exp", "iat"],
+            "code_challenge_methods_supported": SUPPORTED_CODE_CHALLENGE_METHODS,
         }
 
         return web.json_response(discovery)
@@ -140,68 +158,29 @@ class OIDCAuthorizationView(HomeAssistantView):
         """Handle authorization request."""
         hass = request.app["hass"]
 
-        # Debug: log what's in the request
-        _LOGGER.error("=== OIDC AUTHORIZE DEBUG ===")
-        _LOGGER.error("Request keys: %s", list(request.keys()))
-        _LOGGER.error("hass_user: %s", request.get("hass_user"))
-        _LOGGER.error("request['hass_user']: %s", request.get("hass_user"))
-        _LOGGER.error("All request items: %s", dict(request.items()))
-
-        # Check if this is a continuation from the login panel
-        request_id = request.query.get("request_id")
-        if request_id:
-            # Coming from the panel - user should be authenticated now
-            user = request.get("hass_user")
-            if not user:
-                return web.Response(text="Authentication required", status=401)
-
-            pending_requests = hass.data[DOMAIN].get("pending_auth_requests", {})
-            if request_id not in pending_requests:
-                return web.Response(text="Invalid or expired request", status=400)
-
-            stored_request = pending_requests[request_id]
-            if stored_request["expires_at"] < time.time():
-                del pending_requests[request_id]
-                return web.Response(text="Request expired", status=400)
-
-            # Extract parameters from stored request
-            client_id = stored_request["client_id"]
-            redirect_uri = stored_request["redirect_uri"]
-            response_type = stored_request["response_type"]
-            scope = stored_request["scope"]
-            state = stored_request["state"]
-
-            # Clean up stored request
-            del pending_requests[request_id]
-
-            # User is authenticated - generate authorization code immediately
-            auth_code = secrets.token_urlsafe(32)
-            hass.data[DOMAIN]["authorization_codes"][auth_code] = {
-                "client_id": client_id,
-                "redirect_uri": redirect_uri,
-                "scope": scope,
-                "user_id": user.id,
-                "expires_at": time.time() + AUTHORIZATION_CODE_EXPIRY,
-            }
-
-            # Redirect back to client with code
-            separator = "&" if "?" in redirect_uri else "?"
-            redirect_url = f"{redirect_uri}{separator}code={auth_code}"
-            if state:
-                redirect_url += f"&state={state}"
-
-            return web.Response(status=302, headers={"Location": redirect_url})
-        else:
-            # Extract parameters from query string
-            client_id = request.query.get("client_id")
-            redirect_uri = request.query.get("redirect_uri")
-            response_type = request.query.get("response_type")
-            scope = request.query.get("scope", "")
-            state = request.query.get("state", "")
+        # Extract parameters from query string
+        client_id = request.query.get("client_id")
+        redirect_uri = request.query.get("redirect_uri")
+        response_type = request.query.get("response_type")
+        scope = request.query.get("scope", "")
+        state = request.query.get("state", "")
+        code_challenge = request.query.get("code_challenge")
+        code_challenge_method = request.query.get(
+            "code_challenge_method", CODE_CHALLENGE_METHOD_S256
+        )
 
         # Validate parameters
         if not client_id or not redirect_uri or response_type != RESPONSE_TYPE_CODE:
             return web.Response(text="Invalid request", status=400)
+
+        # Validate PKCE parameters
+        if code_challenge:
+            if code_challenge_method not in SUPPORTED_CODE_CHALLENGE_METHODS:
+                supported = ", ".join(SUPPORTED_CODE_CHALLENGE_METHODS)
+                return web.Response(
+                    text=f"Unsupported code_challenge_method. Supported: {supported}",
+                    status=400,
+                )
 
         clients = hass.data[DOMAIN].get("clients", {})
 
@@ -219,23 +198,37 @@ class OIDCAuthorizationView(HomeAssistantView):
         if "pending_auth_requests" not in hass.data[DOMAIN]:
             hass.data[DOMAIN]["pending_auth_requests"] = {}
 
+        # Clean up expired pending requests
+        current_time = time.time()
+        expired_ids = [
+            req_id
+            for req_id, req_data in hass.data[DOMAIN]["pending_auth_requests"].items()
+            if req_data["expires_at"] < current_time
+        ]
+        for req_id in expired_ids:
+            del hass.data[DOMAIN]["pending_auth_requests"][req_id]
+
         hass.data[DOMAIN]["pending_auth_requests"][auth_request_id] = {
             "client_id": client_id,
             "redirect_uri": redirect_uri,
             "response_type": response_type,
             "scope": scope,
             "state": state,
+            "code_challenge": code_challenge,
+            "code_challenge_method": code_challenge_method,
             "expires_at": time.time() + 600,  # 10 minutes
         }
 
         # Return HTML that stores request ID in sessionStorage and redirects to panel
+        # Note: auth_request_id is a cryptographically secure token, but we still escape it
+        escaped_request_id = html.escape(auth_request_id)
         redirect_script = f"""
         <html>
         <head><title>OIDC Authorization</title></head>
         <body>
             <p>Redirecting to login...</p>
             <script>
-                sessionStorage.setItem('oidc_request_id', '{auth_request_id}');
+                sessionStorage.setItem('oidc_request_id', '{escaped_request_id}');
                 window.location.href = '/oidc_login';
             </script>
         </body>
@@ -263,14 +256,51 @@ class OIDCTokenView(HomeAssistantView):
         client_id = data.get("client_id")
         client_secret = data.get("client_secret")
 
+        # Check rate limiting
+        rate_limit_key = f"{client_id}:{request.remote}"
+        rate_limits = hass.data[DOMAIN]["rate_limit_attempts"]
+        current_time = time.time()
+
+        # Clean up old rate limit entries
+        expired_keys = [
+            key
+            for key, data in rate_limits.items()
+            if data["window_start"] < current_time - RATE_LIMIT_WINDOW
+        ]
+        for key in expired_keys:
+            del rate_limits[key]
+
+        # Check if client is rate limited
+        if rate_limit_key in rate_limits:
+            limit_data = rate_limits[rate_limit_key]
+            if limit_data.get("locked_until", 0) > current_time:
+                _LOGGER.warning(
+                    "Rate limit active for client %s from %s", client_id, request.remote
+                )
+                return web.json_response(
+                    {
+                        "error": "invalid_client",
+                        "error_description": "Too many failed attempts. Please try again later.",
+                    },
+                    status=429,
+                )
+
         # Validate client
         clients = hass.data[DOMAIN].get("clients", {})
         if client_id not in clients:
+            self._record_failed_attempt(hass, rate_limit_key, current_time)
             return web.json_response({"error": "invalid_client"}, status=401)
 
         client = clients[client_id]
-        if client["client_secret"] != client_secret:
+        # Verify client secret using constant-time comparison
+        if not verify_client_secret(client_secret, client["client_secret_hash"]):
+            _LOGGER.warning("Invalid client secret for client %s", client_id)
+            self._record_failed_attempt(hass, rate_limit_key, current_time)
             return web.json_response({"error": "invalid_client"}, status=401)
+
+        # Successful authentication - clear rate limit
+        if rate_limit_key in rate_limits:
+            del rate_limits[rate_limit_key]
 
         if grant_type == GRANT_TYPE_AUTHORIZATION_CODE:
             return await self._handle_authorization_code(request, hass, data)
@@ -279,12 +309,36 @@ class OIDCTokenView(HomeAssistantView):
         else:
             return web.json_response({"error": "unsupported_grant_type"}, status=400)
 
+    def _record_failed_attempt(
+        self, hass: HomeAssistant, rate_limit_key: str, current_time: float
+    ) -> None:
+        """Record a failed authentication attempt for rate limiting."""
+        rate_limits = hass.data[DOMAIN]["rate_limit_attempts"]
+
+        if rate_limit_key not in rate_limits:
+            rate_limits[rate_limit_key] = {
+                "attempts": 1,
+                "window_start": current_time,
+            }
+        else:
+            rate_limits[rate_limit_key]["attempts"] += 1
+
+        # Check if we've exceeded max attempts
+        if rate_limits[rate_limit_key]["attempts"] >= MAX_TOKEN_ATTEMPTS:
+            rate_limits[rate_limit_key]["locked_until"] = current_time + RATE_LIMIT_PENALTY
+            _LOGGER.warning(
+                "Rate limit triggered for %s - locked for %d seconds",
+                rate_limit_key,
+                RATE_LIMIT_PENALTY,
+            )
+
     async def _handle_authorization_code(
-        self, request: web.Request, hass: HomeAssistant, data: Any
+        self, _request: web.Request, hass: HomeAssistant, data: Any
     ) -> web.Response:
         """Handle authorization code grant."""
         code = data.get("code")
         redirect_uri = data.get("redirect_uri")
+        code_verifier = data.get("code_verifier")
 
         auth_codes = hass.data[DOMAIN]["authorization_codes"]
         if code not in auth_codes:
@@ -299,6 +353,38 @@ class OIDCTokenView(HomeAssistantView):
 
         if auth_data["redirect_uri"] != redirect_uri:
             return web.json_response({"error": "invalid_grant"}, status=400)
+
+        # Validate PKCE code_verifier if code_challenge was provided
+        code_challenge = auth_data.get("code_challenge")
+        if code_challenge:
+            if not code_verifier:
+                del auth_codes[code]
+                return web.json_response(
+                    {"error": "invalid_grant", "error_description": "code_verifier required"},
+                    status=400,
+                )
+
+            # Verify code_verifier matches code_challenge
+            code_challenge_method = auth_data.get(
+                "code_challenge_method", CODE_CHALLENGE_METHOD_S256
+            )
+            if code_challenge_method == CODE_CHALLENGE_METHOD_S256:
+                # Compute SHA256 hash of code_verifier
+                verifier_hash = hashlib.sha256(code_verifier.encode("ascii")).digest()
+                computed_challenge = (
+                    base64.urlsafe_b64encode(verifier_hash).decode("ascii").rstrip("=")
+                )
+            else:
+                # Plain method (not recommended, but included for spec compliance)
+                computed_challenge = code_verifier
+
+            if computed_challenge != code_challenge:
+                del auth_codes[code]
+                _LOGGER.warning("PKCE verification failed for client %s", auth_data["client_id"])
+                return web.json_response(
+                    {"error": "invalid_grant", "error_description": "Invalid code_verifier"},
+                    status=400,
+                )
 
         # Generate tokens
         user_id = auth_data["user_id"]
@@ -329,7 +415,7 @@ class OIDCTokenView(HomeAssistantView):
         )
 
     async def _handle_refresh_token(
-        self, request: web.Request, hass: HomeAssistant, data: Any
+        self, _request: web.Request, hass: HomeAssistant, data: Any
     ) -> web.Response:
         """Handle refresh token grant."""
         refresh_token = data.get("refresh_token")
@@ -414,12 +500,17 @@ class OIDCUserInfoView(HomeAssistantView):
             )
 
             # Decode and verify the JWT
-            # Note: PyJWT expects options for audience/issuer verification
+            # We don't verify audience here because different clients may use the token
+            # The audience is set to the client_id when the token is created
             payload = jwt.decode(
                 access_token,
                 public_pem,
                 algorithms=["RS256"],
-                options={"verify_aud": False}  # Don't verify audience for now
+                options={
+                    "verify_aud": False,  # We could verify but would need to know the client_id
+                    "verify_signature": True,
+                    "verify_exp": True,
+                },
             )
 
             # Extract user info from JWT
@@ -462,14 +553,17 @@ class OIDCJWKSView(HomeAssistantView):
         hass = request.app["hass"]
         public_key = hass.data[DOMAIN]["jwt_public_key"]
 
-        # Export public key in JWK format
-        public_pem = public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
+        # Get the public key numbers
+        public_numbers = public_key.public_numbers()
 
-        # For simplicity, returning minimal JWKS
-        # In production, you'd properly convert to JWK format
+        # Convert modulus (n) and exponent (e) to base64url format
+        def int_to_base64url(value: int) -> str:
+            """Convert integer to base64url-encoded string."""
+            # Convert to bytes (big-endian)
+            value_bytes = value.to_bytes((value.bit_length() + 7) // 8, byteorder="big")
+            # Base64url encode (no padding)
+            return base64.urlsafe_b64encode(value_bytes).decode("utf-8").rstrip("=")
+
         jwks = {
             "keys": [
                 {
@@ -477,9 +571,8 @@ class OIDCJWKSView(HomeAssistantView):
                     "use": "sig",
                     "kid": "1",
                     "alg": "RS256",
-                    "n": public_pem.decode(
-                        "utf-8"
-                    ),  # Simplified - should be proper base64url encoding
+                    "n": int_to_base64url(public_numbers.n),  # Modulus
+                    "e": int_to_base64url(public_numbers.e),  # Exponent
                 }
             ]
         }

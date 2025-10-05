@@ -1,6 +1,7 @@
 """OIDC Provider integration for Home Assistant."""
 
 import logging
+import secrets
 import time
 
 from homeassistant.components.frontend import async_register_built_in_panel
@@ -10,6 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .http import setup_http_endpoints
+from .security import hash_client_secret
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -74,8 +76,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def handle_register_client(call):
         """Handle register_client service."""
         try:
-            import secrets
-
             _LOGGER.debug("handle_register_client called with data: %s", call.data)
 
             client_name = call.data.get("client_name")
@@ -101,10 +101,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             client_id = f"client_{secrets.token_urlsafe(16)}"
             client_secret = secrets.token_urlsafe(32)
+            client_secret_hash = hash_client_secret(client_secret)
 
             hass.data[DOMAIN]["clients"][client_id] = {
                 "client_name": client_name,
-                "client_secret": client_secret,
+                "client_secret_hash": client_secret_hash,
                 "redirect_uris": redirect_uris,
             }
 

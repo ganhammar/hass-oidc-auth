@@ -1,6 +1,8 @@
 """Test OIDC flow with Home Assistant."""
 
-import time
+import base64
+import hashlib
+import secrets
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Event, Thread
@@ -14,6 +16,20 @@ CLIENT_ID = input("Enter your client_id: ").strip()
 CLIENT_SECRET = input("Enter your client_secret: ").strip()
 CALLBACK_PORT = int(input("Enter callback port (default 3555): ").strip() or "3555")
 REDIRECT_URI = f"http://localhost:{CALLBACK_PORT}/callback"
+
+# Ask if user wants to test with PKCE
+use_pkce = input("Test with PKCE? (y/n, default: y): ").strip().lower()
+USE_PKCE = use_pkce != "n"
+
+# Generate PKCE parameters if enabled
+code_verifier = None
+code_challenge = None
+if USE_PKCE:
+    # Generate code_verifier (43-128 characters)
+    code_verifier = secrets.token_urlsafe(32)
+    # Generate code_challenge using S256 method
+    verifier_hash = hashlib.sha256(code_verifier.encode("ascii")).digest()
+    code_challenge = base64.urlsafe_b64encode(verifier_hash).decode("ascii").rstrip("=")
 
 # Global variable to store the callback URL
 callback_data = {"url": None, "code": None}
@@ -71,9 +87,19 @@ if response.ok:
     print(f"Authorization Endpoint: {discovery['authorization_endpoint']}")
     print(f"Token Endpoint: {discovery['token_endpoint']}")
     print(f"UserInfo Endpoint: {discovery.get('userinfo_endpoint')}")
+    if "code_challenge_methods_supported" in discovery:
+        print(f"PKCE Methods: {discovery['code_challenge_methods_supported']}")
 else:
     print(f"Error: {response.text}")
     exit(1)
+
+if USE_PKCE:
+    print("\n=== PKCE Enabled ===")
+    print(f"Code Verifier: {code_verifier[:20]}...")
+    print(f"Code Challenge: {code_challenge[:20]}...")
+else:
+    print("\n=== PKCE Disabled ===")
+    print("Testing traditional OAuth2 flow without PKCE")
 
 print("\n=== Step 1: Authorization ===")
 
@@ -92,13 +118,21 @@ server_thread = Thread(target=run_server, daemon=True)
 server_thread.start()
 print(f"Started callback server on port {CALLBACK_PORT}")
 
-auth_url = (
-    f"{discovery['authorization_endpoint']}?"
-    f"client_id={CLIENT_ID}&"
-    f"redirect_uri={REDIRECT_URI}&"
-    f"response_type=code&"
-    f"scope=openid profile&"
-    f"state=test123"
+# Build authorization URL with optional PKCE parameters
+auth_params = {
+    "client_id": CLIENT_ID,
+    "redirect_uri": REDIRECT_URI,
+    "response_type": "code",
+    "scope": "openid profile",
+    "state": "test123",
+}
+
+if USE_PKCE:
+    auth_params["code_challenge"] = code_challenge
+    auth_params["code_challenge_method"] = "S256"
+
+auth_url = f"{discovery['authorization_endpoint']}?" + "&".join(
+    f"{k}={v}" for k, v in auth_params.items()
 )
 
 print(f"\nAuthorization URL:\n{auth_url}\n")
@@ -136,16 +170,21 @@ print(f"\n✓ Received authorization code: {auth_code[:20]}...")
 print(f"✓ State: {state}")
 
 print("\n=== Step 2: Exchange Code for Token ===")
-token_response = requests.post(
-    discovery["token_endpoint"],
-    data={
-        "grant_type": "authorization_code",
-        "code": auth_code,
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
-        "redirect_uri": REDIRECT_URI,
-    },
-)
+
+# Build token request data with optional PKCE code_verifier
+token_data = {
+    "grant_type": "authorization_code",
+    "code": auth_code,
+    "client_id": CLIENT_ID,
+    "client_secret": CLIENT_SECRET,
+    "redirect_uri": REDIRECT_URI,
+}
+
+if USE_PKCE:
+    token_data["code_verifier"] = code_verifier
+    print(f"Sending code_verifier: {code_verifier[:20]}...")
+
+token_response = requests.post(discovery["token_endpoint"], data=token_data)
 
 print(f"Status: {token_response.status_code}")
 if token_response.ok:
@@ -180,3 +219,5 @@ print("✓ Discovery endpoint works")
 print("✓ Authorization flow works")
 print("✓ Token exchange works")
 print("✓ UserInfo endpoint works")
+if USE_PKCE:
+    print("✓ PKCE (S256) flow successful")
