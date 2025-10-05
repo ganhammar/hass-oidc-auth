@@ -17,9 +17,8 @@ _LOGGER = logging.getLogger(__name__)
 DOMAIN = "oidc_provider"
 
 
-def create_client(
+async def create_client(
     hass: "HomeAssistant",
-    client_id: str | None = None,
     client_name: str = "OIDC Client",
     redirect_uris: list[str] = None,
     grant_types: list[str] = None,
@@ -31,7 +30,6 @@ def create_client(
 
     Args:
         hass: Home Assistant instance
-        client_id: Client ID (generated if not provided)
         client_name: Human-readable client name
         redirect_uris: List of allowed redirect URIs
         grant_types: List of allowed grant types
@@ -51,9 +49,7 @@ def create_client(
         response_types = ["code"]
 
     # Generate client credentials
-    if client_id is None:
-        client_id = secrets.token_urlsafe(32)
-
+    client_id = secrets.token_urlsafe(32)
     client_secret = secrets.token_urlsafe(48)
     client_secret_hash = hash_client_secret(client_secret)
 
@@ -69,6 +65,10 @@ def create_client(
         "response_types": response_types,
         "token_endpoint_auth_method": token_endpoint_auth_method,
     }
+
+    # Persist to storage
+    store = hass.data[DOMAIN]["store"]
+    await store.async_save({"clients": hass.data[DOMAIN]["clients"]})
 
     _LOGGER.info("Registered client: %s (%s)", client_name, client_id)
 

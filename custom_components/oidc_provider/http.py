@@ -693,7 +693,7 @@ class OIDCRegisterView(HomeAssistantView):
         # Create client using shared client_manager
         from .client_manager import create_client
 
-        client_info = create_client(
+        client_info = await create_client(
             hass,
             client_name=client_name,
             redirect_uris=redirect_uris,

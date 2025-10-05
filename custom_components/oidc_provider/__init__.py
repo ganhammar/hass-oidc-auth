@@ -99,20 +99,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     return
 
             # Create client using shared client_manager
-            import secrets
-
-            client_id = f"client_{secrets.token_urlsafe(16)}"
-            client_info = create_client(
+            client_info = await create_client(
                 hass,
-                client_id=client_id,
                 client_name=client_name,
                 redirect_uris=redirect_uris,
             )
+            client_id = client_info["client_id"]
             client_secret = client_info["client_secret"]
-
-            # Save to storage
-            store = hass.data[DOMAIN]["store"]
-            await store.async_save({"clients": hass.data[DOMAIN]["clients"]})
 
             # Create persistent notification with credentials
             try:
