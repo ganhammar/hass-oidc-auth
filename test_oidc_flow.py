@@ -1,8 +1,9 @@
 """Test OIDC flow with Home Assistant."""
 
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from threading import Thread
+from threading import Event, Thread
 from urllib.parse import parse_qs, urlparse
 
 import requests
@@ -16,6 +17,7 @@ REDIRECT_URI = f"http://localhost:{CALLBACK_PORT}/callback"
 
 # Global variable to store the callback URL
 callback_data = {"url": None, "code": None}
+callback_received = Event()
 
 
 class CallbackHandler(BaseHTTPRequestHandler):
@@ -31,6 +33,9 @@ class CallbackHandler(BaseHTTPRequestHandler):
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
             callback_data["code"] = params.get("code", [None])[0]
+
+            # Signal that we received the callback
+            callback_received.set()
 
             # Send response
             self.send_response(200)
@@ -74,7 +79,16 @@ print("\n=== Step 1: Authorization ===")
 
 # Start callback server
 server = HTTPServer(("localhost", CALLBACK_PORT), CallbackHandler)
-server_thread = Thread(target=server.handle_request, daemon=True)
+server.timeout = 1  # Set timeout so handle_request doesn't block forever
+
+
+def run_server():
+    """Run server until we get a callback."""
+    while not callback_received.is_set():
+        server.handle_request()
+
+
+server_thread = Thread(target=run_server, daemon=True)
 server_thread.start()
 print(f"Started callback server on port {CALLBACK_PORT}")
 
@@ -93,13 +107,16 @@ print(f"Waiting for callback on http://localhost:{CALLBACK_PORT}/callback...")
 
 webbrowser.open(auth_url)
 
-# Wait for callback
-server_thread.join(timeout=120)  # Wait up to 2 minutes
-server.shutdown()
+# Wait for callback event with timeout
+if not callback_received.wait(timeout=120):
+    print("\nError: No authorization code received (timeout)")
+    exit(1)
 
 if not callback_data["code"]:
     print("\nError: No authorization code received")
     exit(1)
+
+print("\n✓ Callback received!")
 
 callback_url = callback_data["url"]
 

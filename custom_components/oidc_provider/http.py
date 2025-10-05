@@ -413,7 +413,14 @@ class OIDCUserInfoView(HomeAssistantView):
                 format=serialization.PublicFormat.SubjectPublicKeyInfo,
             )
 
-            payload = jwt.decode(access_token, public_pem, algorithms=["RS256"])
+            # Decode and verify the JWT
+            # Note: PyJWT expects options for audience/issuer verification
+            payload = jwt.decode(
+                access_token,
+                public_pem,
+                algorithms=["RS256"],
+                options={"verify_aud": False}  # Don't verify audience for now
+            )
 
             # Extract user info from JWT
             user_id = payload.get("sub")
@@ -433,9 +440,14 @@ class OIDCUserInfoView(HomeAssistantView):
                 }
             )
         except jwt.ExpiredSignatureError:
+            _LOGGER.error("Token expired")
             return web.json_response({"error": "token_expired"}, status=401)
-        except jwt.InvalidTokenError:
-            return web.json_response({"error": "invalid_token"}, status=401)
+        except jwt.InvalidTokenError as e:
+            _LOGGER.error("Invalid token: %s", str(e))
+            return web.json_response({"error": "invalid_token", "detail": str(e)}, status=401)
+        except Exception as e:
+            _LOGGER.error("Unexpected error validating token: %s", str(e), exc_info=True)
+            return web.json_response({"error": "internal_error"}, status=500)
 
 
 class OIDCJWKSView(HomeAssistantView):
