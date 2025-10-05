@@ -140,10 +140,11 @@ class OIDCAuthorizationView(HomeAssistantView):
         hass = request.app["hass"]
 
         # Debug: log what's in the request
-        _LOGGER.debug("Request keys: %s", list(request.keys()))
-        _LOGGER.debug("hass_user: %s", request.get("hass_user"))
-        _LOGGER.debug("hass_authenticated: %s", request.get("hass_authenticated"))
-        _LOGGER.debug("current_user: %s", request.get("current_user"))
+        _LOGGER.error("=== OIDC AUTHORIZE DEBUG ===")
+        _LOGGER.error("Request keys: %s", list(request.keys()))
+        _LOGGER.error("hass_user: %s", request.get("hass_user"))
+        _LOGGER.error("request['hass_user']: %s", request.get("hass_user"))
+        _LOGGER.error("All request items: %s", dict(request.items()))
 
         # Check if this is a continuation from the login panel
         request_id = request.query.get("request_id")
