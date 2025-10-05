@@ -1,6 +1,7 @@
 """OIDC Provider integration for Home Assistant."""
 
 import logging
+import time
 
 from homeassistant.components.frontend import async_register_built_in_panel
 from homeassistant.components.http import StaticPathConfig
@@ -52,6 +53,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     # Register frontend panel for OIDC auth flow (hidden from sidebar)
+    cache_buster = int(time.time())
     async_register_built_in_panel(
         hass,
         component_name="custom",
@@ -62,7 +64,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "_panel_custom": {
                 "name": "oidc-login-panel",
                 "embed_iframe": False,
-                "js_url": "/oidc_provider/oidc-login-panel.js",
+                "js_url": f"/oidc_provider/oidc-login-panel.js?v={cache_buster}",
             }
         },
         require_admin=False,
