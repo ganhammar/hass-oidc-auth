@@ -1,6 +1,8 @@
 """Test OIDC flow with Home Assistant."""
 
 import webbrowser
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from threading import Thread
 from urllib.parse import parse_qs, urlparse
 
 import requests
@@ -9,7 +11,50 @@ import requests
 HA_URL = "https://hem.ganhammar.se"
 CLIENT_ID = input("Enter your client_id: ").strip()
 CLIENT_SECRET = input("Enter your client_secret: ").strip()
-REDIRECT_URI = "http://localhost:3555/callback"
+CALLBACK_PORT = int(input("Enter callback port (default 3555): ").strip() or "3555")
+REDIRECT_URI = f"http://localhost:{CALLBACK_PORT}/callback"
+
+# Global variable to store the callback URL
+callback_data = {"url": None, "code": None}
+
+
+class CallbackHandler(BaseHTTPRequestHandler):
+    """HTTP handler for OAuth callback."""
+
+    def do_GET(self):
+        """Handle GET request."""
+        if self.path.startswith("/callback"):
+            # Store the full URL
+            callback_data["url"] = f"http://localhost:{CALLBACK_PORT}{self.path}"
+
+            # Parse the code from query string
+            parsed = urlparse(self.path)
+            params = parse_qs(parsed.query)
+            callback_data["code"] = params.get("code", [None])[0]
+
+            # Send response
+            self.send_response(200)
+            self.send_header("Content-type", "text/html")
+            self.end_headers()
+            self.wfile.write(
+                b"""
+                <html>
+                <head><title>Authorization Successful</title></head>
+                <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                    <h1>Authorization Successful!</h1>
+                    <p>You can close this window and return to the terminal.</p>
+                </body>
+                </html>
+                """
+            )
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format, *args):
+        """Suppress logging."""
+        pass
+
 
 print("\n=== Testing OIDC Discovery ===")
 discovery_url = f"{HA_URL}/.well-known/openid-configuration"
@@ -26,6 +71,13 @@ else:
     exit(1)
 
 print("\n=== Step 1: Authorization ===")
+
+# Start callback server
+server = HTTPServer(("localhost", CALLBACK_PORT), CallbackHandler)
+server_thread = Thread(target=server.handle_request, daemon=True)
+server_thread.start()
+print(f"Started callback server on port {CALLBACK_PORT}")
+
 auth_url = (
     f"{discovery['authorization_endpoint']}?"
     f"client_id={CLIENT_ID}&"
@@ -37,12 +89,19 @@ auth_url = (
 
 print(f"\nAuthorization URL:\n{auth_url}\n")
 print("Opening browser for authentication...")
-print("After logging in, you'll be redirected to localhost:3555/callback")
-print("Copy the FULL URL from your browser (it will fail to load, that's OK)")
+print(f"Waiting for callback on http://localhost:{CALLBACK_PORT}/callback...")
 
 webbrowser.open(auth_url)
 
-callback_url = input("\nPaste the callback URL here: ").strip()
+# Wait for callback
+server_thread.join(timeout=120)  # Wait up to 2 minutes
+server.shutdown()
+
+if not callback_data["code"]:
+    print("\nError: No authorization code received")
+    exit(1)
+
+callback_url = callback_data["url"]
 
 # Parse the callback URL to get the authorization code
 parsed = urlparse(callback_url)

@@ -392,21 +392,50 @@ class OIDCUserInfoView(HomeAssistantView):
 
     url = "/auth/oidc/userinfo"
     name = "api:oidc:userinfo"
-    requires_auth = True
+    requires_auth = False  # We'll validate the JWT ourselves
 
     async def get(self, request: web.Request) -> web.Response:
         """Handle userinfo request."""
-        user = request.get("hass_user")
-        if not user:
+        hass = request.app["hass"]
+
+        # Get the access token from Authorization header
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
             return web.json_response({"error": "unauthorized"}, status=401)
 
-        return web.json_response(
-            {
-                "sub": user.id,
-                "name": user.name,
-                "email": user.id,  # HA doesn't store email, use ID as fallback
-            }
-        )
+        access_token = auth_header[7:]  # Remove "Bearer " prefix
+
+        try:
+            # Verify and decode the JWT
+            public_key = hass.data[DOMAIN]["jwt_public_key"]
+            public_pem = public_key.public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            )
+
+            payload = jwt.decode(access_token, public_pem, algorithms=["RS256"])
+
+            # Extract user info from JWT
+            user_id = payload.get("sub")
+            if not user_id:
+                return web.json_response({"error": "invalid_token"}, status=401)
+
+            # Get user from Home Assistant
+            user = await hass.auth.async_get_user(user_id)
+            if not user:
+                return web.json_response({"error": "user_not_found"}, status=404)
+
+            return web.json_response(
+                {
+                    "sub": user.id,
+                    "name": user.name,
+                    "email": user.id,  # HA doesn't store email, use ID as fallback
+                }
+            )
+        except jwt.ExpiredSignatureError:
+            return web.json_response({"error": "token_expired"}, status=401)
+        except jwt.InvalidTokenError:
+            return web.json_response({"error": "invalid_token"}, status=401)
 
 
 class OIDCJWKSView(HomeAssistantView):
