@@ -91,13 +91,14 @@ class OIDCContinueView(HomeAssistantView):
             "expires_at": time.time() + AUTHORIZATION_CODE_EXPIRY,
         }
 
-        # Redirect back to client
+        # Build redirect URL
         separator = "&" if "?" in redirect_uri else "?"
         redirect_url = f"{redirect_uri}{separator}code={auth_code}"
         if state:
             redirect_url += f"&state={state}"
 
-        return web.Response(status=302, headers={"Location": redirect_url})
+        # Return JSON with redirect URL (since fetch can't follow external redirects)
+        return web.json_response({"redirect_url": redirect_url})
 
 
 class OIDCDiscoveryView(HomeAssistantView):

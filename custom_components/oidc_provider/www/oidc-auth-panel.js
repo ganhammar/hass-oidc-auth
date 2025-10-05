@@ -51,22 +51,21 @@ class OidcLoginPanel extends HTMLElement {
       }
 
       // Call the continue endpoint with Bearer token
+      // We can't follow redirects in fetch to external domains, so we need to
+      // get the redirect URL and do it manually
       const response = await fetch(`/auth/oidc/continue?request_id=${requestId}`, {
         headers: {
           'Authorization': `Bearer ${accessToken}`
         },
-        redirect: 'manual'
+        redirect: 'follow'  // Let fetch follow redirects
       });
 
-      if (response.type === 'opaqueredirect' || response.status === 0) {
-        // Manual redirect was blocked, get location from headers
-        const location = response.headers.get('Location');
-        if (location) {
-          window.location.href = location;
-        }
-      } else if (response.redirected) {
+      // Check if we got redirected (fetch will have followed internal redirects)
+      if (response.redirected) {
+        // If the final URL is different, navigate there
         window.location.href = response.url;
       } else if (response.ok) {
+        // Check if there's JSON with a redirect_url
         const contentType = response.headers.get('content-type');
         if (contentType && contentType.includes('application/json')) {
           const data = await response.json();
@@ -74,8 +73,8 @@ class OidcLoginPanel extends HTMLElement {
             window.location.href = data.redirect_url;
           }
         } else {
-          // Assume it's a redirect in HTML
-          window.location.reload();
+          // No redirect info, something went wrong
+          throw new Error('No redirect received from continue endpoint');
         }
       } else {
         const text = await response.text();
