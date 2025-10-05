@@ -266,8 +266,21 @@ class OIDCTokenView(HomeAssistantView):
         data = await request.post()
 
         grant_type = data.get("grant_type")
+
+        # Extract client credentials from either POST data or Authorization header
         client_id = data.get("client_id")
         client_secret = data.get("client_secret")
+
+        # Check for HTTP Basic authentication
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Basic "):
+            try:
+                # Decode Basic auth credentials
+                credentials = base64.b64decode(auth_header[6:]).decode("utf-8")
+                client_id, client_secret = credentials.split(":", 1)
+            except Exception as e:
+                _LOGGER.warning("Invalid Basic auth header: %s", e)
+                return web.json_response({"error": "invalid_client"}, status=401)
 
         # Check rate limiting
         rate_limit_key = f"{client_id}:{request.remote}"
