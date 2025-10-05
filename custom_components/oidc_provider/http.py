@@ -690,39 +690,16 @@ class OIDCRegisterView(HomeAssistantView):
                 status=400,
             )
 
-        # Generate client credentials
-        client_id = secrets.token_urlsafe(32)
-        client_secret = secrets.token_urlsafe(48)
+        # Create client using shared client_manager
+        from .client_manager import create_client
 
-        # Hash the client secret
-        from .security import hash_client_secret
+        client_info = create_client(
+            hass,
+            client_name=client_name,
+            redirect_uris=redirect_uris,
+            grant_types=grant_types,
+            response_types=response_types,
+            token_endpoint_auth_method=token_endpoint_auth_method,
+        )
 
-        client_secret_hash = hash_client_secret(client_secret)
-
-        # Store client
-        if "clients" not in hass.data[DOMAIN]:
-            hass.data[DOMAIN]["clients"] = {}
-
-        hass.data[DOMAIN]["clients"][client_id] = {
-            "client_name": client_name,
-            "client_secret_hash": client_secret_hash,
-            "redirect_uris": redirect_uris,
-            "grant_types": grant_types,
-            "response_types": response_types,
-            "token_endpoint_auth_method": token_endpoint_auth_method,
-        }
-
-        # Return client credentials (RFC 7591 response)
-        response_data = {
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "client_name": client_name,
-            "redirect_uris": redirect_uris,
-            "grant_types": grant_types,
-            "response_types": response_types,
-            "token_endpoint_auth_method": token_endpoint_auth_method,
-        }
-
-        _LOGGER.info("Dynamically registered client: %s", client_name)
-
-        return web.json_response(response_data, status=201)
+        return web.json_response(client_info, status=201)
