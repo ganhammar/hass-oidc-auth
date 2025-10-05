@@ -1,5 +1,5 @@
 {
   "name": "OIDC Provider",
   "render_readme": true,
-  "domains": ["oidc_provider"]
+  "filename": "oidc_provider"
 }
