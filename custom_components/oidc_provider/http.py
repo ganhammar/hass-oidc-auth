@@ -52,7 +52,7 @@ def setup_http_endpoints(hass: HomeAssistant) -> None:
 
     # Register views
     hass.http.register_view(OIDCDiscoveryView())
-    hass.http.register_view(OAuth2AuthorizationServerMetadataView())
+    # Note: Cannot register /.well-known/oauth-authorization-server as it's owned by HA core
     hass.http.register_view(OIDCAuthorizationView())
     hass.http.register_view(OIDCContinueView())
     hass.http.register_view(OIDCTokenView())
@@ -159,37 +159,6 @@ class OIDCDiscoveryView(HomeAssistantView):
         }
 
         return web.json_response(discovery)
-
-
-class OAuth2AuthorizationServerMetadataView(HomeAssistantView):
-    """OAuth 2.0 Authorization Server Metadata endpoint (RFC 8414)."""
-
-    url = "/.well-known/oauth-authorization-server"
-    name = "api:oauth:as-metadata"
-    requires_auth = False
-
-    async def get(self, request: web.Request) -> web.Response:
-        """Handle OAuth 2.0 Authorization Server Metadata request."""
-        base_url = str(request.url.origin())
-
-        # Similar to OIDC discovery, but OAuth 2.0 specific
-        metadata = {
-            "issuer": base_url,
-            "authorization_endpoint": f"{base_url}/auth/oidc/authorize",
-            "token_endpoint": f"{base_url}/auth/oidc/token",
-            "registration_endpoint": f"{base_url}/auth/oidc/register",
-            "jwks_uri": f"{base_url}/auth/oidc/jwks",
-            "response_types_supported": ["code"],
-            "grant_types_supported": ["authorization_code", "refresh_token"],
-            "token_endpoint_auth_methods_supported": [
-                "client_secret_post",
-                "client_secret_basic",
-            ],
-            "code_challenge_methods_supported": SUPPORTED_CODE_CHALLENGE_METHODS,
-            "scopes_supported": SUPPORTED_SCOPES,
-        }
-
-        return web.json_response(metadata)
 
 
 class OIDCAuthorizationView(HomeAssistantView):
