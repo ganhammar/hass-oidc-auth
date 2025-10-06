@@ -410,3 +410,1029 @@ async def test_oidc_register_view_invalid_redirect_uri():
     data = json.loads(body)
     assert data["error"] == "invalid_redirect_uri"
     assert "not-a-valid-url" in data["error_description"]
+
+
+@pytest.mark.asyncio
+async def test_oidc_authorization_view_success():
+    """Test authorization endpoint with valid parameters."""
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "clients": {
+                "test_client": {
+                    "redirect_uris": ["https://example.com/callback"],
+                }
+            },
+            "pending_auth_requests": {},
+        }
+    }
+
+    request = Mock()
+    request.app = {"hass": hass}
+    request.query = {
+        "client_id": "test_client",
+        "redirect_uri": "https://example.com/callback",
+        "response_type": "code",
+        "scope": "openid",
+        "state": "abc123",
+        "code_challenge": "test_challenge",
+        "code_challenge_method": "S256",
+    }
+
+    from custom_components.oidc_provider.http import OIDCAuthorizationView
+
+    view = OIDCAuthorizationView()
+    response = await view.get(request)
+
+    assert response.status == 200
+    assert response.content_type == "text/html"
+    body = response.body.decode("utf-8")
+    assert "sessionStorage.setItem" in body
+    assert "oidc_request_id" in body
+    assert "/oidc_login" in body
+
+    # Verify pending request was stored
+    assert len(hass.data[DOMAIN]["pending_auth_requests"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_oidc_authorization_view_missing_client_id():
+    """Test authorization endpoint without client_id."""
+    request = Mock()
+    request.app = {"hass": Mock()}
+    request.query = {
+        "redirect_uri": "https://example.com/callback",
+        "response_type": "code",
+    }
+
+    from custom_components.oidc_provider.http import OIDCAuthorizationView
+
+    view = OIDCAuthorizationView()
+    response = await view.get(request)
+
+    assert response.status == 400
+    assert b"Invalid request" in response.body
+
+
+@pytest.mark.asyncio
+async def test_oidc_authorization_view_invalid_response_type():
+    """Test authorization endpoint with invalid response_type."""
+    request = Mock()
+    request.app = {"hass": Mock()}
+    request.query = {
+        "client_id": "test_client",
+        "redirect_uri": "https://example.com/callback",
+        "response_type": "token",  # Invalid, should be 'code'
+    }
+
+    from custom_components.oidc_provider.http import OIDCAuthorizationView
+
+    view = OIDCAuthorizationView()
+    response = await view.get(request)
+
+    assert response.status == 400
+    assert b"Invalid request" in response.body
+
+
+@pytest.mark.asyncio
+async def test_oidc_authorization_view_invalid_client():
+    """Test authorization endpoint with non-existent client."""
+    hass = Mock()
+    hass.data = {DOMAIN: {"clients": {}}}
+
+    request = Mock()
+    request.app = {"hass": hass}
+    request.query = {
+        "client_id": "nonexistent",
+        "redirect_uri": "https://example.com/callback",
+        "response_type": "code",
+    }
+
+    from custom_components.oidc_provider.http import OIDCAuthorizationView
+
+    view = OIDCAuthorizationView()
+    response = await view.get(request)
+
+    assert response.status == 400
+    assert b"Invalid client_id" in response.body
+
+
+@pytest.mark.asyncio
+async def test_oidc_authorization_view_invalid_redirect_uri():
+    """Test authorization endpoint with unregistered redirect_uri."""
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "clients": {
+                "test_client": {
+                    "redirect_uris": ["https://example.com/callback"],
+                }
+            }
+        }
+    }
+
+    request = Mock()
+    request.app = {"hass": hass}
+    request.query = {
+        "client_id": "test_client",
+        "redirect_uri": "https://evil.com/callback",  # Not registered
+        "response_type": "code",
+    }
+
+    from custom_components.oidc_provider.http import OIDCAuthorizationView
+
+    view = OIDCAuthorizationView()
+    response = await view.get(request)
+
+    assert response.status == 400
+    assert b"Invalid redirect_uri" in response.body
+
+
+@pytest.mark.asyncio
+async def test_oidc_authorization_view_unsupported_code_challenge_method():
+    """Test authorization endpoint with unsupported code_challenge_method."""
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "clients": {
+                "test_client": {
+                    "redirect_uris": ["https://example.com/callback"],
+                }
+            },
+            "pending_auth_requests": {},
+        }
+    }
+
+    request = Mock()
+    request.app = {"hass": hass}
+    request.query = {
+        "client_id": "test_client",
+        "redirect_uri": "https://example.com/callback",
+        "response_type": "code",
+        "code_challenge": "test_challenge",
+        "code_challenge_method": "plain",  # Not supported
+    }
+
+    from custom_components.oidc_provider.http import OIDCAuthorizationView
+
+    view = OIDCAuthorizationView()
+    response = await view.get(request)
+
+    assert response.status == 400
+    assert b"Unsupported code_challenge_method" in response.body
+
+
+@pytest.mark.asyncio
+async def test_oidc_token_view_invalid_client():
+    """Test token endpoint with invalid client credentials."""
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "clients": {},
+            "rate_limit_attempts": {},
+        }
+    }
+
+    request = MagicMock()
+    request.app = {"hass": hass}
+    request.remote = "127.0.0.1"
+    request.headers = {}
+    request.post = AsyncMock(
+        return_value={
+            "grant_type": "authorization_code",
+            "client_id": "nonexistent",
+            "client_secret": "secret",
+            "code": "code123",
+        }
+    )
+
+    from custom_components.oidc_provider.http import OIDCTokenView
+
+    view = OIDCTokenView()
+    response = await view.post(request)
+
+    assert response.status == 401
+    body = response.body.decode("utf-8")
+    data = json.loads(body)
+    assert data["error"] == "invalid_client"
+
+
+@pytest.mark.asyncio
+async def test_oidc_token_view_invalid_grant():
+    """Test token endpoint with invalid authorization code."""
+    from custom_components.oidc_provider.security import hash_client_secret
+
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "clients": {
+                "test_client": {
+                    "client_secret_hash": hash_client_secret("test_secret"),
+                }
+            },
+            "authorization_codes": {},
+            "rate_limit_attempts": {},
+        }
+    }
+
+    request = MagicMock()
+    request.app = {"hass": hass}
+    request.remote = "127.0.0.1"
+    request.headers = {}
+    request.post = AsyncMock(
+        return_value={
+            "grant_type": "authorization_code",
+            "client_id": "test_client",
+            "client_secret": "test_secret",
+            "code": "invalid_code",
+            "redirect_uri": "https://example.com/callback",
+        }
+    )
+
+    from custom_components.oidc_provider.http import OIDCTokenView
+
+    view = OIDCTokenView()
+    response = await view.post(request)
+
+    assert response.status == 400
+    body = response.body.decode("utf-8")
+    data = json.loads(body)
+    assert data["error"] == "invalid_grant"
+
+
+@pytest.mark.asyncio
+async def test_oidc_token_view_unsupported_grant_type():
+    """Test token endpoint with unsupported grant type."""
+    from custom_components.oidc_provider.security import hash_client_secret
+
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "clients": {
+                "test_client": {
+                    "client_secret_hash": hash_client_secret("test_secret"),
+                }
+            },
+            "rate_limit_attempts": {},
+        }
+    }
+
+    request = MagicMock()
+    request.app = {"hass": hass}
+    request.remote = "127.0.0.1"
+    request.headers = {}
+    request.post = AsyncMock(
+        return_value={
+            "grant_type": "client_credentials",
+            "client_id": "test_client",
+            "client_secret": "test_secret",
+        }
+    )
+
+    from custom_components.oidc_provider.http import OIDCTokenView
+
+    view = OIDCTokenView()
+    response = await view.post(request)
+
+    assert response.status == 400
+    body = response.body.decode("utf-8")
+    data = json.loads(body)
+    assert data["error"] == "unsupported_grant_type"
+
+
+@pytest.mark.asyncio
+async def test_oidc_token_view_basic_auth():
+    """Test token endpoint with HTTP Basic authentication."""
+    import base64
+
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    from custom_components.oidc_provider.security import hash_client_secret
+
+    # Generate RSA keys for JWT
+    private_key = rsa.generate_private_key(
+        public_exponent=65537, key_size=2048, backend=default_backend()
+    )
+
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "clients": {
+                "test_client": {
+                    "client_secret_hash": hash_client_secret("test_secret"),
+                }
+            },
+            "authorization_codes": {
+                "valid_code": {
+                    "client_id": "test_client",
+                    "redirect_uri": "https://example.com/callback",
+                    "user_id": "user123",
+                    "scope": "openid",
+                    "expires_at": time.time() + 600,
+                }
+            },
+            "refresh_tokens": {},
+            "rate_limit_attempts": {},
+            "jwt_private_key": private_key,
+        }
+    }
+
+    # Encode credentials as Basic auth
+    credentials = base64.b64encode(b"test_client:test_secret").decode("utf-8")
+
+    request = MagicMock()
+    request.app = {"hass": hass}
+    request.remote = "127.0.0.1"
+    request.headers = {"Authorization": f"Basic {credentials}"}
+    request.post = AsyncMock(
+        return_value={
+            "grant_type": "authorization_code",
+            "code": "valid_code",
+            "redirect_uri": "https://example.com/callback",
+        }
+    )
+
+    from custom_components.oidc_provider.http import OIDCTokenView
+
+    view = OIDCTokenView()
+    response = await view.post(request)
+
+    assert response.status == 200
+    body = response.body.decode("utf-8")
+    data = json.loads(body)
+    assert "access_token" in data
+    assert "refresh_token" in data
+    assert data["token_type"] == "Bearer"
+
+
+@pytest.mark.asyncio
+async def test_oidc_token_view_invalid_basic_auth():
+    """Test token endpoint with malformed Basic auth."""
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "clients": {},
+            "rate_limit_attempts": {},
+        }
+    }
+
+    request = MagicMock()
+    request.app = {"hass": hass}
+    request.remote = "127.0.0.1"
+    request.headers = {"Authorization": "Basic invalid!!!"}
+    request.post = AsyncMock(
+        return_value={
+            "grant_type": "authorization_code",
+        }
+    )
+
+    from custom_components.oidc_provider.http import OIDCTokenView
+
+    view = OIDCTokenView()
+    response = await view.post(request)
+
+    assert response.status == 401
+    body = response.body.decode("utf-8")
+    data = json.loads(body)
+    assert data["error"] == "invalid_client"
+
+
+@pytest.mark.asyncio
+async def test_oidc_token_view_rate_limiting():
+    """Test token endpoint rate limiting after failed attempts."""
+    from custom_components.oidc_provider.security import hash_client_secret
+
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "clients": {
+                "test_client": {
+                    "client_secret_hash": hash_client_secret("correct_secret"),
+                }
+            },
+            "rate_limit_attempts": {},
+        }
+    }
+
+    from custom_components.oidc_provider.http import OIDCTokenView
+
+    view = OIDCTokenView()
+
+    # Make multiple failed attempts
+    for i in range(5):
+        request = MagicMock()
+        request.app = {"hass": hass}
+        request.remote = "127.0.0.1"
+        request.headers = {}
+        request.post = AsyncMock(
+            return_value={
+                "grant_type": "authorization_code",
+                "client_id": "test_client",
+                "client_secret": "wrong_secret",
+                "code": "code123",
+            }
+        )
+
+        response = await view.post(request)
+        assert response.status == 401
+
+    # Next attempt should be rate limited
+    request = MagicMock()
+    request.app = {"hass": hass}
+    request.remote = "127.0.0.1"
+    request.headers = {}
+    request.post = AsyncMock(
+        return_value={
+            "grant_type": "authorization_code",
+            "client_id": "test_client",
+            "client_secret": "wrong_secret",
+            "code": "code123",
+        }
+    )
+
+    response = await view.post(request)
+    assert response.status == 429
+    body = response.body.decode("utf-8")
+    data = json.loads(body)
+    assert data["error"] == "invalid_client"
+    assert "Too many failed attempts" in data["error_description"]
+
+
+@pytest.mark.asyncio
+async def test_oidc_token_view_expired_code():
+    """Test token endpoint with expired authorization code."""
+    from custom_components.oidc_provider.security import hash_client_secret
+
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "clients": {
+                "test_client": {
+                    "client_secret_hash": hash_client_secret("test_secret"),
+                }
+            },
+            "authorization_codes": {
+                "expired_code": {
+                    "client_id": "test_client",
+                    "redirect_uri": "https://example.com/callback",
+                    "user_id": "user123",
+                    "scope": "openid",
+                    "expires_at": time.time() - 100,  # Expired
+                }
+            },
+            "rate_limit_attempts": {},
+        }
+    }
+
+    request = MagicMock()
+    request.app = {"hass": hass}
+    request.remote = "127.0.0.1"
+    request.headers = {}
+    request.post = AsyncMock(
+        return_value={
+            "grant_type": "authorization_code",
+            "client_id": "test_client",
+            "client_secret": "test_secret",
+            "code": "expired_code",
+            "redirect_uri": "https://example.com/callback",
+        }
+    )
+
+    from custom_components.oidc_provider.http import OIDCTokenView
+
+    view = OIDCTokenView()
+    response = await view.post(request)
+
+    assert response.status == 400
+    body = response.body.decode("utf-8")
+    data = json.loads(body)
+    assert data["error"] == "invalid_grant"
+
+    # Verify code was deleted
+    assert "expired_code" not in hass.data[DOMAIN]["authorization_codes"]
+
+
+@pytest.mark.asyncio
+async def test_oidc_token_view_wrong_redirect_uri():
+    """Test token endpoint with mismatched redirect_uri."""
+    from custom_components.oidc_provider.security import hash_client_secret
+
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "clients": {
+                "test_client": {
+                    "client_secret_hash": hash_client_secret("test_secret"),
+                }
+            },
+            "authorization_codes": {
+                "valid_code": {
+                    "client_id": "test_client",
+                    "redirect_uri": "https://example.com/callback",
+                    "user_id": "user123",
+                    "scope": "openid",
+                    "expires_at": time.time() + 600,
+                }
+            },
+            "rate_limit_attempts": {},
+        }
+    }
+
+    request = MagicMock()
+    request.app = {"hass": hass}
+    request.remote = "127.0.0.1"
+    request.headers = {}
+    request.post = AsyncMock(
+        return_value={
+            "grant_type": "authorization_code",
+            "client_id": "test_client",
+            "client_secret": "test_secret",
+            "code": "valid_code",
+            "redirect_uri": "https://evil.com/callback",  # Wrong!
+        }
+    )
+
+    from custom_components.oidc_provider.http import OIDCTokenView
+
+    view = OIDCTokenView()
+    response = await view.post(request)
+
+    assert response.status == 400
+    body = response.body.decode("utf-8")
+    data = json.loads(body)
+    assert data["error"] == "invalid_grant"
+
+
+@pytest.mark.asyncio
+async def test_oidc_token_view_missing_code_verifier():
+    """Test token endpoint with PKCE but missing code_verifier."""
+    from custom_components.oidc_provider.security import hash_client_secret
+
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "clients": {
+                "test_client": {
+                    "client_secret_hash": hash_client_secret("test_secret"),
+                }
+            },
+            "authorization_codes": {
+                "valid_code": {
+                    "client_id": "test_client",
+                    "redirect_uri": "https://example.com/callback",
+                    "user_id": "user123",
+                    "scope": "openid",
+                    "expires_at": time.time() + 600,
+                    "code_challenge": "test_challenge",
+                    "code_challenge_method": "S256",
+                }
+            },
+            "rate_limit_attempts": {},
+        }
+    }
+
+    request = MagicMock()
+    request.app = {"hass": hass}
+    request.remote = "127.0.0.1"
+    request.headers = {}
+    request.post = AsyncMock(
+        return_value={
+            "grant_type": "authorization_code",
+            "client_id": "test_client",
+            "client_secret": "test_secret",
+            "code": "valid_code",
+            "redirect_uri": "https://example.com/callback",
+            # Missing code_verifier!
+        }
+    )
+
+    from custom_components.oidc_provider.http import OIDCTokenView
+
+    view = OIDCTokenView()
+    response = await view.post(request)
+
+    assert response.status == 400
+    body = response.body.decode("utf-8")
+    data = json.loads(body)
+    assert data["error"] == "invalid_grant"
+    assert "code_verifier required" in data["error_description"]
+
+
+@pytest.mark.asyncio
+async def test_oidc_token_view_invalid_code_verifier():
+    """Test token endpoint with invalid PKCE code_verifier."""
+    import base64
+    import hashlib
+
+    from custom_components.oidc_provider.security import hash_client_secret
+
+    # Generate a valid code challenge
+    code_verifier = "valid_verifier_1234567890"
+    verifier_hash = hashlib.sha256(code_verifier.encode("ascii")).digest()
+    code_challenge = base64.urlsafe_b64encode(verifier_hash).decode("ascii").rstrip("=")
+
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "clients": {
+                "test_client": {
+                    "client_secret_hash": hash_client_secret("test_secret"),
+                }
+            },
+            "authorization_codes": {
+                "valid_code": {
+                    "client_id": "test_client",
+                    "redirect_uri": "https://example.com/callback",
+                    "user_id": "user123",
+                    "scope": "openid",
+                    "expires_at": time.time() + 600,
+                    "code_challenge": code_challenge,
+                    "code_challenge_method": "S256",
+                }
+            },
+            "rate_limit_attempts": {},
+        }
+    }
+
+    request = MagicMock()
+    request.app = {"hass": hass}
+    request.remote = "127.0.0.1"
+    request.headers = {}
+    request.post = AsyncMock(
+        return_value={
+            "grant_type": "authorization_code",
+            "client_id": "test_client",
+            "client_secret": "test_secret",
+            "code": "valid_code",
+            "redirect_uri": "https://example.com/callback",
+            "code_verifier": "wrong_verifier",  # Wrong!
+        }
+    )
+
+    from custom_components.oidc_provider.http import OIDCTokenView
+
+    view = OIDCTokenView()
+    response = await view.post(request)
+
+    assert response.status == 400
+    body = response.body.decode("utf-8")
+    data = json.loads(body)
+    assert data["error"] == "invalid_grant"
+    assert "Invalid code_verifier" in data["error_description"]
+
+    # Verify code was deleted
+    assert "valid_code" not in hass.data[DOMAIN]["authorization_codes"]
+
+
+@pytest.mark.asyncio
+async def test_oidc_token_view_valid_pkce():
+    """Test token endpoint with valid PKCE flow."""
+    import base64
+    import hashlib
+
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    from custom_components.oidc_provider.security import hash_client_secret
+
+    # Generate a valid code challenge
+    code_verifier = "valid_verifier_1234567890_abcdefghijklmnop"
+    verifier_hash = hashlib.sha256(code_verifier.encode("ascii")).digest()
+    code_challenge = base64.urlsafe_b64encode(verifier_hash).decode("ascii").rstrip("=")
+
+    # Generate RSA keys for JWT
+    private_key = rsa.generate_private_key(
+        public_exponent=65537, key_size=2048, backend=default_backend()
+    )
+
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "clients": {
+                "test_client": {
+                    "client_secret_hash": hash_client_secret("test_secret"),
+                }
+            },
+            "authorization_codes": {
+                "valid_code": {
+                    "client_id": "test_client",
+                    "redirect_uri": "https://example.com/callback",
+                    "user_id": "user123",
+                    "scope": "openid profile",
+                    "expires_at": time.time() + 600,
+                    "code_challenge": code_challenge,
+                    "code_challenge_method": "S256",
+                }
+            },
+            "refresh_tokens": {},
+            "rate_limit_attempts": {},
+            "jwt_private_key": private_key,
+        }
+    }
+
+    request = MagicMock()
+    request.app = {"hass": hass}
+    request.remote = "127.0.0.1"
+    request.headers = {}
+    request.post = AsyncMock(
+        return_value={
+            "grant_type": "authorization_code",
+            "client_id": "test_client",
+            "client_secret": "test_secret",
+            "code": "valid_code",
+            "redirect_uri": "https://example.com/callback",
+            "code_verifier": code_verifier,
+        }
+    )
+
+    from custom_components.oidc_provider.http import OIDCTokenView
+
+    view = OIDCTokenView()
+    response = await view.post(request)
+
+    assert response.status == 200
+    body = response.body.decode("utf-8")
+    data = json.loads(body)
+    assert "access_token" in data
+    assert "refresh_token" in data
+    assert data["token_type"] == "Bearer"
+    assert data["scope"] == "openid profile"
+
+    # Verify code was deleted
+    assert "valid_code" not in hass.data[DOMAIN]["authorization_codes"]
+
+    # Verify refresh token was created
+    assert len(hass.data[DOMAIN]["refresh_tokens"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_oidc_token_view_refresh_token():
+    """Test token endpoint with refresh token grant."""
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    from custom_components.oidc_provider.security import hash_client_secret
+
+    # Generate RSA keys for JWT
+    private_key = rsa.generate_private_key(
+        public_exponent=65537, key_size=2048, backend=default_backend()
+    )
+
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "clients": {
+                "test_client": {
+                    "client_secret_hash": hash_client_secret("test_secret"),
+                }
+            },
+            "refresh_tokens": {
+                "valid_refresh_token": {
+                    "client_id": "test_client",
+                    "user_id": "user123",
+                    "scope": "openid email",
+                    "expires_at": time.time() + 3600,
+                }
+            },
+            "rate_limit_attempts": {},
+            "jwt_private_key": private_key,
+        }
+    }
+
+    request = MagicMock()
+    request.app = {"hass": hass}
+    request.remote = "127.0.0.1"
+    request.headers = {}
+    request.post = AsyncMock(
+        return_value={
+            "grant_type": "refresh_token",
+            "client_id": "test_client",
+            "client_secret": "test_secret",
+            "refresh_token": "valid_refresh_token",
+        }
+    )
+
+    from custom_components.oidc_provider.http import OIDCTokenView
+
+    view = OIDCTokenView()
+    response = await view.post(request)
+
+    assert response.status == 200
+    body = response.body.decode("utf-8")
+    data = json.loads(body)
+    assert "access_token" in data
+    assert data["token_type"] == "Bearer"
+    assert data["scope"] == "openid email"
+
+
+@pytest.mark.asyncio
+async def test_oidc_token_view_invalid_refresh_token():
+    """Test token endpoint with invalid refresh token."""
+    from custom_components.oidc_provider.security import hash_client_secret
+
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "clients": {
+                "test_client": {
+                    "client_secret_hash": hash_client_secret("test_secret"),
+                }
+            },
+            "refresh_tokens": {},
+            "rate_limit_attempts": {},
+        }
+    }
+
+    request = MagicMock()
+    request.app = {"hass": hass}
+    request.remote = "127.0.0.1"
+    request.headers = {}
+    request.post = AsyncMock(
+        return_value={
+            "grant_type": "refresh_token",
+            "client_id": "test_client",
+            "client_secret": "test_secret",
+            "refresh_token": "invalid_token",
+        }
+    )
+
+    from custom_components.oidc_provider.http import OIDCTokenView
+
+    view = OIDCTokenView()
+    response = await view.post(request)
+
+    assert response.status == 400
+    body = response.body.decode("utf-8")
+    data = json.loads(body)
+    assert data["error"] == "invalid_grant"
+
+
+@pytest.mark.asyncio
+async def test_oidc_token_view_expired_refresh_token():
+    """Test token endpoint with expired refresh token."""
+    from custom_components.oidc_provider.security import hash_client_secret
+
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "clients": {
+                "test_client": {
+                    "client_secret_hash": hash_client_secret("test_secret"),
+                }
+            },
+            "refresh_tokens": {
+                "expired_token": {
+                    "client_id": "test_client",
+                    "user_id": "user123",
+                    "scope": "openid",
+                    "expires_at": time.time() - 100,  # Expired
+                }
+            },
+            "rate_limit_attempts": {},
+        }
+    }
+
+    request = MagicMock()
+    request.app = {"hass": hass}
+    request.remote = "127.0.0.1"
+    request.headers = {}
+    request.post = AsyncMock(
+        return_value={
+            "grant_type": "refresh_token",
+            "client_id": "test_client",
+            "client_secret": "test_secret",
+            "refresh_token": "expired_token",
+        }
+    )
+
+    from custom_components.oidc_provider.http import OIDCTokenView
+
+    view = OIDCTokenView()
+    response = await view.post(request)
+
+    assert response.status == 400
+    body = response.body.decode("utf-8")
+    data = json.loads(body)
+    assert data["error"] == "invalid_grant"
+
+    # Verify token was deleted
+    assert "expired_token" not in hass.data[DOMAIN]["refresh_tokens"]
+
+
+@pytest.mark.asyncio
+async def test_oidc_userinfo_endpoint():
+    """Test UserInfo endpoint with valid token."""
+    import jwt
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    # Generate RSA keys
+    private_key = rsa.generate_private_key(
+        public_exponent=65537, key_size=2048, backend=default_backend()
+    )
+    public_key = private_key.public_key()
+
+    # Create a valid token
+    payload = {
+        "sub": "user123",
+        "name": "Test User",
+        "email": "test@example.com",
+        "iat": int(time.time()),
+        "exp": int(time.time()) + 3600,
+        "iss": "http://localhost",
+    }
+
+    private_key_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+    token = jwt.encode(payload, private_key_pem, algorithm="RS256")
+
+    # Mock user
+    mock_user = Mock()
+    mock_user.id = "user123"
+    mock_user.name = "Test User"
+
+    # Mock hass.auth
+    mock_auth = Mock()
+    mock_auth.async_get_user = AsyncMock(return_value=mock_user)
+
+    hass = Mock()
+    hass.auth = mock_auth
+    hass.data = {
+        DOMAIN: {
+            "jwt_public_key": public_key,
+        }
+    }
+
+    request = Mock()
+    request.app = {"hass": hass}
+    request.headers = {"Authorization": f"Bearer {token}"}
+
+    from custom_components.oidc_provider.http import OIDCUserInfoView
+
+    view = OIDCUserInfoView()
+    response = await view.get(request)
+
+    assert response.status == 200
+    body = response.body.decode("utf-8")
+    data = json.loads(body)
+    assert data["sub"] == "user123"
+    assert data["name"] == "Test User"
+    assert data["email"] == "user123"  # HA uses user.id as email fallback
+
+
+@pytest.mark.asyncio
+async def test_oidc_userinfo_endpoint_missing_token():
+    """Test UserInfo endpoint without token."""
+    request = Mock()
+    request.app = {"hass": Mock()}
+    request.headers = {}
+
+    from custom_components.oidc_provider.http import OIDCUserInfoView
+
+    view = OIDCUserInfoView()
+    response = await view.get(request)
+
+    assert response.status == 401
+    body = response.body.decode("utf-8")
+    data = json.loads(body)
+    assert data["error"] == "unauthorized"
+
+
+@pytest.mark.asyncio
+async def test_oidc_userinfo_endpoint_invalid_token():
+    """Test UserInfo endpoint with invalid token."""
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    # Generate RSA keys
+    private_key = rsa.generate_private_key(
+        public_exponent=65537, key_size=2048, backend=default_backend()
+    )
+    public_key = private_key.public_key()
+
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "jwt_public_key": public_key,
+        }
+    }
+
+    request = Mock()
+    request.app = {"hass": hass}
+    request.headers = {"Authorization": "Bearer invalid.token.here"}
+
+    from custom_components.oidc_provider.http import OIDCUserInfoView
+
+    view = OIDCUserInfoView()
+    response = await view.get(request)
+
+    assert response.status == 401
+    body = response.body.decode("utf-8")
+    data = json.loads(body)
+    assert data["error"] == "invalid_token"
