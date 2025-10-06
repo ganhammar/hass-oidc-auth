@@ -137,7 +137,7 @@ class OIDCContinueView(HomeAssistantView):
 class OIDCDiscoveryView(HomeAssistantView):
     """OIDC Discovery endpoint."""
 
-    url = "/.well-known/openid-configuration"
+    url = "/oidc/.well-known/openid-configuration"
     name = "api:oidc:discovery"
     requires_auth = False
 
