@@ -36,6 +36,20 @@ from .security import verify_client_secret
 _LOGGER = logging.getLogger(__name__)
 
 
+def _get_base_url(request: web.Request) -> str:
+    """Get base URL from request, respecting X-Forwarded headers if present."""
+    # Check for X-Forwarded headers (proxy setup)
+    forwarded_proto = request.headers.get("X-Forwarded-Proto")
+    forwarded_host = request.headers.get("X-Forwarded-Host")
+
+    if forwarded_proto and forwarded_host:
+        # Use forwarded headers from proxy
+        return f"{forwarded_proto}://{forwarded_host}"
+    else:
+        # Direct connection, use request URL
+        return str(request.url.origin())
+
+
 def setup_http_endpoints(hass: HomeAssistant) -> None:
     """Set up the OIDC HTTP endpoints."""
     # Generate RSA key pair for JWT signing
@@ -129,7 +143,7 @@ class OIDCDiscoveryView(HomeAssistantView):
 
     async def get(self, request: web.Request) -> web.Response:
         """Handle discovery request."""
-        base_url = str(request.url.origin())
+        base_url = _get_base_url(request)
 
         discovery = {
             "issuer": base_url,
@@ -170,7 +184,7 @@ class OAuth2AuthorizationServerMetadataView(HomeAssistantView):
 
     async def get(self, request: web.Request) -> web.Response:
         """Handle OAuth 2.0 Authorization Server Metadata request."""
-        base_url = str(request.url.origin())
+        base_url = _get_base_url(request)
 
         metadata = {
             "issuer": base_url,
