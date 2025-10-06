@@ -178,7 +178,7 @@ class OIDCDiscoveryView(HomeAssistantView):
 class OAuth2AuthorizationServerMetadataView(HomeAssistantView):
     """OAuth 2.0 Authorization Server Metadata endpoint (RFC 8414)."""
 
-    url = "/oidc/.well-known/oauth-authorization-server"
+    url = "/.well-known/oauth-authorization-server/oidc"
     name = "api:oauth:as-metadata"
     requires_auth = False
 
