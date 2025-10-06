@@ -52,7 +52,7 @@ def setup_http_endpoints(hass: HomeAssistant) -> None:
 
     # Register views
     hass.http.register_view(OIDCDiscoveryView())
-    # Note: Cannot register /.well-known/oauth-authorization-server as it's owned by HA core
+    hass.http.register_view(OAuth2AuthorizationServerMetadataView())
     hass.http.register_view(OIDCAuthorizationView())
     hass.http.register_view(OIDCContinueView())
     hass.http.register_view(OIDCTokenView())
@@ -64,7 +64,7 @@ def setup_http_endpoints(hass: HomeAssistant) -> None:
 class OIDCContinueView(HomeAssistantView):
     """OIDC Continue view - requires auth, retrieves stored request, generates code."""
 
-    url = "/auth/oidc/continue"
+    url = "/oidc/continue"
     name = "api:oidc:continue"
     requires_auth = True
 
@@ -133,11 +133,11 @@ class OIDCDiscoveryView(HomeAssistantView):
 
         discovery = {
             "issuer": base_url,
-            "authorization_endpoint": f"{base_url}/auth/oidc/authorize",
-            "token_endpoint": f"{base_url}/auth/oidc/token",
-            "userinfo_endpoint": f"{base_url}/auth/oidc/userinfo",
-            "jwks_uri": f"{base_url}/auth/oidc/jwks",
-            "registration_endpoint": f"{base_url}/auth/oidc/register",
+            "authorization_endpoint": f"{base_url}/oidc/authorize",
+            "token_endpoint": f"{base_url}/oidc/token",
+            "userinfo_endpoint": f"{base_url}/oidc/userinfo",
+            "jwks_uri": f"{base_url}/oidc/jwks",
+            "registration_endpoint": f"{base_url}/oidc/register",
             "response_types_supported": ["code"],
             "subject_types_supported": ["public"],
             "id_token_signing_alg_values_supported": ["RS256"],
@@ -161,10 +161,40 @@ class OIDCDiscoveryView(HomeAssistantView):
         return web.json_response(discovery)
 
 
+class OAuth2AuthorizationServerMetadataView(HomeAssistantView):
+    """OAuth 2.0 Authorization Server Metadata endpoint (RFC 8414)."""
+
+    url = "/oidc/.well-known/oauth-authorization-server"
+    name = "api:oauth:as-metadata"
+    requires_auth = False
+
+    async def get(self, request: web.Request) -> web.Response:
+        """Handle OAuth 2.0 Authorization Server Metadata request."""
+        base_url = str(request.url.origin())
+
+        metadata = {
+            "issuer": base_url,
+            "authorization_endpoint": f"{base_url}/oidc/authorize",
+            "token_endpoint": f"{base_url}/oidc/token",
+            "registration_endpoint": f"{base_url}/oidc/register",
+            "jwks_uri": f"{base_url}/oidc/jwks",
+            "response_types_supported": ["code"],
+            "grant_types_supported": ["authorization_code", "refresh_token"],
+            "token_endpoint_auth_methods_supported": [
+                "client_secret_post",
+                "client_secret_basic",
+            ],
+            "code_challenge_methods_supported": SUPPORTED_CODE_CHALLENGE_METHODS,
+            "scopes_supported": SUPPORTED_SCOPES,
+        }
+
+        return web.json_response(metadata)
+
+
 class OIDCAuthorizationView(HomeAssistantView):
     """OIDC Authorization endpoint."""
 
-    url = "/auth/oidc/authorize"
+    url = "/oidc/authorize"
     name = "api:oidc:authorize"
     requires_auth = False
 
@@ -257,7 +287,7 @@ class OIDCAuthorizationView(HomeAssistantView):
 class OIDCTokenView(HomeAssistantView):
     """OIDC Token endpoint."""
 
-    url = "/auth/oidc/token"
+    url = "/oidc/token"
     name = "api:oidc:token"
     requires_auth = False
 
@@ -529,7 +559,7 @@ class OIDCTokenView(HomeAssistantView):
 class OIDCUserInfoView(HomeAssistantView):
     """OIDC UserInfo endpoint."""
 
-    url = "/auth/oidc/userinfo"
+    url = "/oidc/userinfo"
     name = "api:oidc:userinfo"
     requires_auth = False  # We'll validate the JWT ourselves
 
@@ -597,7 +627,7 @@ class OIDCUserInfoView(HomeAssistantView):
 class OIDCJWKSView(HomeAssistantView):
     """OIDC JWKS (JSON Web Key Set) endpoint."""
 
-    url = "/auth/oidc/jwks"
+    url = "/oidc/jwks"
     name = "api:oidc:jwks"
     requires_auth = False
 
@@ -636,7 +666,7 @@ class OIDCJWKSView(HomeAssistantView):
 class OIDCRegisterView(HomeAssistantView):
     """OAuth 2.0 Dynamic Client Registration endpoint (RFC 7591)."""
 
-    url = "/auth/oidc/register"
+    url = "/oidc/register"
     name = "api:oidc:register"
     requires_auth = False
 
