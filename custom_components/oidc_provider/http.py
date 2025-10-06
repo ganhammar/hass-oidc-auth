@@ -16,6 +16,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 
+from .client_manager import create_client
 from .const import (
     ACCESS_TOKEN_EXPIRY,
     AUTHORIZATION_CODE_EXPIRY,
@@ -736,15 +737,22 @@ class OIDCRegisterView(HomeAssistantView):
             )
 
         # Create client using shared client_manager
-        from .client_manager import create_client
-
-        client_info = await create_client(
-            hass,
-            client_name=client_name,
-            redirect_uris=redirect_uris,
-            grant_types=grant_types,
-            response_types=response_types,
-            token_endpoint_auth_method=token_endpoint_auth_method,
-        )
+        try:
+            client_info = await create_client(
+                hass,
+                client_name=client_name,
+                redirect_uris=redirect_uris,
+                grant_types=grant_types,
+                response_types=response_types,
+                token_endpoint_auth_method=token_endpoint_auth_method,
+            )
+        except ValueError as e:
+            return web.json_response(
+                {
+                    "error": "invalid_redirect_uri",
+                    "error_description": str(e),
+                },
+                status=400,
+            )
 
         return web.json_response(client_info, status=201)

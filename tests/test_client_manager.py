@@ -1,38 +1,17 @@
 """Tests for client manager."""
 
-import importlib.util
-import sys
-from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-DOMAIN = "oidc_provider"
-
-# Load security module first (dependency)
-security_path = Path(__file__).parent.parent / "custom_components" / "oidc_provider" / "security.py"
-security_spec = importlib.util.spec_from_file_location("security", security_path)
-security_module = importlib.util.module_from_spec(security_spec)
-sys.modules["oidc_provider.security"] = security_module
-security_spec.loader.exec_module(security_module)
-
-# Now load client_manager
-client_manager_path = (
-    Path(__file__).parent.parent / "custom_components" / "oidc_provider" / "client_manager.py"
-)
-spec = importlib.util.spec_from_file_location("client_manager", client_manager_path)
-client_manager_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(client_manager_module)
-create_client = client_manager_module.create_client
+from custom_components.oidc_provider.client_manager import create_client
+from custom_components.oidc_provider.const import DOMAIN
 
 
 @pytest.fixture
-def mock_hass():
-    """Create a mock Home Assistant instance."""
-    from unittest.mock import AsyncMock
-
-    hass = Mock()
-    hass.data = {DOMAIN: {}}
+async def mock_hass(hass):
+    """Create a mock Home Assistant instance with OIDC provider data."""
+    hass.data[DOMAIN] = {}
 
     # Mock the store
     mock_store = Mock()
@@ -223,3 +202,68 @@ async def test_create_client_secret_uniqueness(mock_hass):
 
     # All 100 client secrets should be unique
     assert len(secrets) == 100
+
+
+async def test_create_client_invalid_redirect_uri(mock_hass):
+    """Test that create_client rejects invalid redirect URIs."""
+    with pytest.raises(ValueError, match="Invalid redirect_uri"):
+        await create_client(
+            mock_hass,
+            client_name="Invalid URI Client",
+            redirect_uris=["not-a-valid-url"],
+        )
+
+
+async def test_create_client_redirect_uri_missing_scheme(mock_hass):
+    """Test that create_client rejects URIs without scheme."""
+    with pytest.raises(ValueError, match="Invalid redirect_uri"):
+        await create_client(
+            mock_hass,
+            client_name="No Scheme Client",
+            redirect_uris=["example.com/callback"],
+        )
+
+
+async def test_create_client_redirect_uri_invalid_scheme(mock_hass):
+    """Test that create_client rejects non-http(s) schemes."""
+    with pytest.raises(ValueError, match="must use http or https"):
+        await create_client(
+            mock_hass,
+            client_name="FTP Client",
+            redirect_uris=["ftp://example.com/callback"],
+        )
+
+
+async def test_create_client_redirect_uri_non_string(mock_hass):
+    """Test that create_client rejects non-string redirect URIs."""
+    with pytest.raises(ValueError, match="must be a string"):
+        await create_client(
+            mock_hass,
+            client_name="Non-String Client",
+            redirect_uris=[123],
+        )
+
+
+async def test_create_client_valid_https_redirect_uri(mock_hass):
+    """Test that create_client accepts valid HTTPS URIs."""
+    result = await create_client(
+        mock_hass,
+        client_name="HTTPS Client",
+        redirect_uris=["https://example.com/callback"],
+    )
+
+    assert result["redirect_uris"] == ["https://example.com/callback"]
+
+
+async def test_create_client_mixed_valid_invalid_uris(mock_hass):
+    """Test that create_client rejects if any URI is invalid."""
+    with pytest.raises(ValueError, match="Invalid redirect_uri"):
+        await create_client(
+            mock_hass,
+            client_name="Mixed Client",
+            redirect_uris=[
+                "https://example.com/callback",
+                "invalid-url",
+                "http://localhost/callback",
+            ],
+        )

@@ -2,23 +2,19 @@
 
 import logging
 import secrets
-from typing import TYPE_CHECKING, Any
+from typing import Any
+from urllib.parse import urlparse
 
-if TYPE_CHECKING:
-    from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant
 
-# Import security function - try relative, fall back to direct
-try:
-    from .security import hash_client_secret
-except ImportError:
-    from oidc_provider.security import hash_client_secret
+from .security import hash_client_secret
 
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "oidc_provider"
 
 
 async def create_client(
-    hass: "HomeAssistant",
+    hass: HomeAssistant,
     client_name: str = "OIDC Client",
     redirect_uris: list[str] = None,
     grant_types: list[str] = None,
@@ -38,6 +34,9 @@ async def create_client(
 
     Returns:
         Dictionary with client_id, client_secret, and other metadata
+
+    Raises:
+        ValueError: If redirect URIs are invalid
     """
     if redirect_uris is None:
         redirect_uris = []
@@ -47,6 +46,23 @@ async def create_client(
 
     if response_types is None:
         response_types = ["code"]
+
+    # Validate each redirect URI is a valid URL
+    for uri in redirect_uris:
+        if not isinstance(uri, str):
+            raise ValueError("Each redirect_uri must be a string")
+        try:
+            parsed = urlparse(uri)
+            # Must have scheme and netloc (host)
+            if not parsed.scheme or not parsed.netloc:
+                raise ValueError(f"Invalid redirect_uri: {uri}")
+            # Only allow http/https schemes
+            if parsed.scheme not in ["http", "https"]:
+                raise ValueError(f"Redirect URI must use http or https: {uri}")
+        except Exception as e:
+            if isinstance(e, ValueError):
+                raise
+            raise ValueError(f"Invalid redirect_uri: {uri}") from e
 
     # Generate client credentials
     client_id = secrets.token_urlsafe(32)

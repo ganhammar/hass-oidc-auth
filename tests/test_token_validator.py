@@ -1,9 +1,6 @@
 """Tests for token validator."""
 
-import importlib.util
 import time
-from pathlib import Path
-from unittest.mock import Mock
 
 import jwt
 import pytest
@@ -11,24 +8,13 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-DOMAIN = "oidc_provider"
-
-# Import the function directly from the module file
-token_validator_path = (
-    Path(__file__).parent.parent / "custom_components" / "oidc_provider" / "token_validator.py"
-)
-spec = importlib.util.spec_from_file_location("token_validator", token_validator_path)
-token_validator_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(token_validator_module)
-validate_access_token = token_validator_module.validate_access_token
+from custom_components.oidc_provider.const import DOMAIN
+from custom_components.oidc_provider.token_validator import validate_access_token
 
 
 @pytest.fixture
-def mock_hass_with_keys():
-    """Create a mock Home Assistant instance with JWT keys."""
-    hass = Mock()
-    hass.data = {}
-
+def mock_hass_with_keys(hass):
+    """Create a Home Assistant instance with JWT keys."""
     # Generate RSA key pair
     private_key = rsa.generate_private_key(
         public_exponent=65537, key_size=2048, backend=default_backend()
@@ -139,21 +125,17 @@ def test_validate_access_token_malformed(mock_hass_with_keys):
     assert result is None
 
 
-def test_validate_access_token_no_oidc_provider():
+def test_validate_access_token_no_oidc_provider(hass):
     """Test validating when OIDC provider is not loaded."""
-    hass = Mock()
-    hass.data = {}
     # Don't initialize OIDC provider data
-
     result = validate_access_token(hass, "any.token.here")
 
     assert result is None
 
 
-def test_validate_access_token_no_public_key():
+def test_validate_access_token_no_public_key(hass):
     """Test validating when public key is missing."""
-    hass = Mock()
-    hass.data = {DOMAIN: {}}  # OIDC provider loaded but no keys
+    hass.data[DOMAIN] = {}  # OIDC provider loaded but no keys
 
     result = validate_access_token(hass, "any.token.here")
 
