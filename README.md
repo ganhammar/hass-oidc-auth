@@ -101,11 +101,13 @@ data:
 
 Once installed, your Home Assistant instance exposes the following OIDC endpoints:
 
-- **Discovery**: `https://your-ha-instance/.well-known/openid-configuration`
-- **Authorization**: `https://your-ha-instance/auth/oidc/authorize`
-- **Token**: `https://your-ha-instance/auth/oidc/token`
-- **UserInfo**: `https://your-ha-instance/auth/oidc/userinfo`
-- **JWKS**: `https://your-ha-instance/auth/oidc/jwks`
+- **Discovery**: `https://your-ha-instance/oidc/.well-known/openid-configuration`
+- **OAuth Authorization Server Metadata**: `https://your-ha-instance/.well-known/oauth-authorization-server/oidc`
+- **Authorization**: `https://your-ha-instance/oidc/authorize`
+- **Token**: `https://your-ha-instance/oidc/token`
+- **UserInfo**: `https://your-ha-instance/oidc/userinfo`
+- **JWKS**: `https://your-ha-instance/oidc/jwks`
+- **Dynamic Client Registration**: `https://your-ha-instance/oidc/register`
 
 ### Using with Claude Connectors
 

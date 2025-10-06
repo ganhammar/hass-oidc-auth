@@ -54,7 +54,7 @@ def test_discovery_document_structure():
 
 def test_endpoint_urls():
     """Test that endpoint URLs are correctly formatted."""
-    base_url = "https://hem.ganhammar.se"
+    base_url = "https://homeassistant.test"
 
     endpoints = {
         "authorization": f"{base_url}/auth/oidc/authorize",

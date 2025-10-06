@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlparse
 import requests
 
 # Configuration
-HA_URL = "https://hem.ganhammar.se"
+HA_URL = input("Enter your Home Assistant URL (e.g., https://homeassistant.local): ").strip()
 CLIENT_ID = input("Enter your client_id: ").strip()
 CLIENT_SECRET = input("Enter your client_secret: ").strip()
 CALLBACK_PORT = int(input("Enter callback port (default 3555): ").strip() or "3555")
