@@ -53,7 +53,7 @@ class OidcLoginPanel extends HTMLElement {
       // Call the continue endpoint with Bearer token
       // We can't follow redirects in fetch to external domains, so we need to
       // get the redirect URL and do it manually
-      const response = await fetch(`/auth/oidc/continue?request_id=${requestId}`, {
+      const response = await fetch(`/oidc/continue?request_id=${requestId}`, {
         headers: {
           'Authorization': `Bearer ${accessToken}`
         },
