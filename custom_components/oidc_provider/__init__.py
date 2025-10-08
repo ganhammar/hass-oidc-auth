@@ -130,11 +130,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.error("Failed to create notification: %s", notif_error)
 
             _LOGGER.info(
-                "Registered OIDC client: %s | Client ID: %s | Client Secret: %s | "
-                "Redirect URIs: %s",
+                "Registered OIDC client: %s | Client ID: %s | Redirect URIs: %s",
                 client_name,
                 client_id,
-                client_secret,
                 redirect_uris,
             )
         except Exception as e:

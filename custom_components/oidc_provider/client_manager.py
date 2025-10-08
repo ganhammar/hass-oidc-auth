@@ -56,8 +56,13 @@ async def create_client(
             # Must have scheme and netloc (host)
             if not parsed.scheme or not parsed.netloc:
                 raise ValueError(f"Invalid redirect_uri: {uri}")
-            # Only allow http/https schemes
-            if parsed.scheme not in ["http", "https"]:
+            # Enforce HTTPS except for localhost (RFC 8252 §8.3)
+            if parsed.scheme == "http":
+                if parsed.hostname not in ["localhost", "127.0.0.1", "::1"]:
+                    raise ValueError(
+                        f"Redirect URI must use HTTPS (HTTP only allowed for localhost): {uri}"
+                    )
+            elif parsed.scheme != "https":
                 raise ValueError(f"Redirect URI must use http or https: {uri}")
         except Exception as e:
             if isinstance(e, ValueError):

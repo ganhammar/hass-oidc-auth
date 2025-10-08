@@ -56,7 +56,7 @@ async def test_create_client_generates_unique_id(mock_hass):
     result = await create_client(
         mock_hass,
         client_name="Generated ID Client",
-        redirect_uris=["http://example.com/callback"],
+        redirect_uris=["https://example.com/callback"],
     )
 
     # Verify client ID is generated and non-empty
@@ -266,4 +266,54 @@ async def test_create_client_mixed_valid_invalid_uris(mock_hass):
                 "invalid-url",
                 "http://localhost/callback",
             ],
+        )
+
+
+async def test_create_client_http_non_localhost_rejected(mock_hass):
+    """Test that HTTP redirect URIs are rejected for non-localhost hosts (RFC 8252 §8.3)."""
+    with pytest.raises(ValueError, match="must use HTTPS"):
+        await create_client(
+            mock_hass,
+            client_name="HTTP Non-Localhost Client",
+            redirect_uris=["http://example.com/callback"],
+        )
+
+
+async def test_create_client_http_localhost_allowed(mock_hass):
+    """Test that HTTP redirect URIs are allowed for localhost."""
+    result = await create_client(
+        mock_hass,
+        client_name="HTTP Localhost Client",
+        redirect_uris=["http://localhost/callback"],
+    )
+    assert result["redirect_uris"] == ["http://localhost/callback"]
+
+
+async def test_create_client_http_127_0_0_1_allowed(mock_hass):
+    """Test that HTTP redirect URIs are allowed for 127.0.0.1."""
+    result = await create_client(
+        mock_hass,
+        client_name="HTTP 127.0.0.1 Client",
+        redirect_uris=["http://127.0.0.1:8080/callback"],
+    )
+    assert result["redirect_uris"] == ["http://127.0.0.1:8080/callback"]
+
+
+async def test_create_client_http_ipv6_localhost_allowed(mock_hass):
+    """Test that HTTP redirect URIs are allowed for IPv6 localhost (::1)."""
+    result = await create_client(
+        mock_hass,
+        client_name="HTTP IPv6 Localhost Client",
+        redirect_uris=["http://[::1]:8080/callback"],
+    )
+    assert result["redirect_uris"] == ["http://[::1]:8080/callback"]
+
+
+async def test_create_client_http_production_domain_rejected(mock_hass):
+    """Test that HTTP redirect URIs are rejected for production domains."""
+    with pytest.raises(ValueError, match="must use HTTPS"):
+        await create_client(
+            mock_hass,
+            client_name="HTTP Production Client",
+            redirect_uris=["http://app.example.com/callback"],
         )
