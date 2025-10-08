@@ -9,6 +9,20 @@ on:
       - main
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    name: Validate
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: HACS Validation
+        uses: hacs/action@main
+        with:
+          category: integration
+
+      - name: Hassfest Validation
+        uses: home-assistant/actions/hassfest@master
+
   test:
     runs-on: ubuntu-latest
     strategy:

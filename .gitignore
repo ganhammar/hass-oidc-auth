@@ -45,9 +45,6 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 
-# Poetry
-poetry.lock
-
 # Environments
 .env
 .venv
