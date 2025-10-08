@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="128" cy="128" r="120" fill="#4A90E2" opacity="0.9"/>
+
+  <!-- Shield outline representing security -->
+  <path d="M 128 40 L 180 65 L 180 115 C 180 155 128 195 128 195 C 128 195 76 155 76 115 L 76 65 Z"
+        fill="none" stroke="white" stroke-width="8" stroke-linejoin="round"/>
+
+  <!-- Key symbol for authentication -->
+  <circle cx="128" cy="110" r="18" fill="white"/>
+  <rect x="125" y="125" width="6" height="35" fill="white"/>
+  <rect x="120" y="145" width="8" height="6" fill="white"/>
+  <rect x="120" y="155" width="8" height="6" fill="white"/>
+
+  <!-- OIDC text at bottom -->
+  <text x="128" y="230" font-family="Arial, sans-serif" font-size="24" font-weight="bold"
+        text-anchor="middle" fill="white">OIDC</text>
+</svg>
