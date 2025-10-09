@@ -43,15 +43,16 @@ class OIDCProviderOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
+        # Get current options, defaulting to empty dict if None
+        options = self.config_entry.options or {}
+
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(
                 {
                     vol.Optional(
                         CONF_REQUIRE_PKCE,
-                        default=self.config_entry.options.get(
-                            CONF_REQUIRE_PKCE, DEFAULT_REQUIRE_PKCE
-                        ),
+                        default=options.get(CONF_REQUIRE_PKCE, DEFAULT_REQUIRE_PKCE),
                     ): bool,
                 }
             ),
