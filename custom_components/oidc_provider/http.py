@@ -548,9 +548,7 @@ class OIDCTokenView(HomeAssistantView):
         client_id = auth_data["client_id"]
         scope = auth_data["scope"]
 
-        access_token = self._generate_access_token(
-            _request, hass, user_id, scope, client_id
-        )
+        access_token = self._generate_access_token(_request, hass, user_id, scope, client_id)
         refresh_token = secrets.token_urlsafe(32)
 
         # Store refresh token
