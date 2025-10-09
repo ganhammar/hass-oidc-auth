@@ -14,12 +14,12 @@ from custom_components.oidc_provider.http import (
     OIDCDiscoveryView,
     OIDCJWKSView,
     OIDCRegisterView,
-    _get_base_url,
 )
+from custom_components.oidc_provider.token_validator import get_issuer_from_request
 
 
 def test_get_base_url_with_forwarded_headers():
-    """Test _get_base_url with X-Forwarded headers (proxy setup)."""
+    """Test get_issuer_from_request with X-Forwarded headers (proxy setup)."""
     # Create a mock request with X-Forwarded headers
     request = Mock()
     request.headers = {
@@ -28,7 +28,7 @@ def test_get_base_url_with_forwarded_headers():
     }
     request.url.origin.return_value = "http://localhost:8123"
 
-    result = _get_base_url(request)
+    result = get_issuer_from_request(request)
 
     assert result == "https://example.com"
     # Verify that request.url.origin() was not called when headers are present
@@ -36,13 +36,13 @@ def test_get_base_url_with_forwarded_headers():
 
 
 def test_get_base_url_without_forwarded_headers():
-    """Test _get_base_url without X-Forwarded headers (direct connection)."""
+    """Test get_issuer_from_request without X-Forwarded headers (direct connection)."""
     # Create a mock request without X-Forwarded headers
     request = Mock()
     request.headers = {}
     request.url.origin.return_value = "http://192.168.1.100:8123"
 
-    result = _get_base_url(request)
+    result = get_issuer_from_request(request)
 
     assert result == "http://192.168.1.100:8123"
     # Verify that request.url.origin() was called
@@ -50,7 +50,7 @@ def test_get_base_url_without_forwarded_headers():
 
 
 def test_get_base_url_with_partial_forwarded_headers():
-    """Test _get_base_url with only one X-Forwarded header (should use fallback)."""
+    """Test get_issuer_from_request with only one X-Forwarded header (should use fallback)."""
     # Create a mock request with only X-Forwarded-Proto
     request = Mock()
     request.headers = {
@@ -58,7 +58,7 @@ def test_get_base_url_with_partial_forwarded_headers():
     }
     request.url.origin.return_value = "http://localhost:8123"
 
-    result = _get_base_url(request)
+    result = get_issuer_from_request(request)
 
     assert result == "http://localhost:8123"
     # Should fall back to origin() when both headers aren't present
@@ -66,7 +66,7 @@ def test_get_base_url_with_partial_forwarded_headers():
 
 
 def test_get_base_url_with_only_host_header():
-    """Test _get_base_url with only X-Forwarded-Host (should use fallback)."""
+    """Test get_issuer_from_request with only X-Forwarded-Host (should use fallback)."""
     # Create a mock request with only X-Forwarded-Host
     request = Mock()
     request.headers = {
@@ -74,7 +74,7 @@ def test_get_base_url_with_only_host_header():
     }
     request.url.origin.return_value = "http://localhost:8123"
 
-    result = _get_base_url(request)
+    result = get_issuer_from_request(request)
 
     assert result == "http://localhost:8123"
     # Should fall back to origin() when both headers aren't present

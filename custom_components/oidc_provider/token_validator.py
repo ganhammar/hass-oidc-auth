@@ -4,11 +4,38 @@ import logging
 from typing import Any
 
 import jwt
+from aiohttp import web
 from cryptography.hazmat.primitives import serialization
 from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "oidc_provider"
+
+
+def get_issuer_from_request(request: web.Request) -> str:
+    """
+    Get the expected issuer URL from a request.
+
+    Respects X-Forwarded headers if present (for reverse proxy setups).
+
+    Args:
+        request: The aiohttp web request
+
+    Returns:
+        The issuer URL (base URL + /oidc)
+    """
+    # Check for X-Forwarded headers (proxy setup)
+    forwarded_proto = request.headers.get("X-Forwarded-Proto")
+    forwarded_host = request.headers.get("X-Forwarded-Host")
+
+    if forwarded_proto and forwarded_host:
+        # Use forwarded headers from proxy
+        base_url = f"{forwarded_proto}://{forwarded_host}"
+    else:
+        # Direct connection, use request URL
+        base_url = str(request.url.origin())
+
+    return base_url
 
 
 def validate_access_token(

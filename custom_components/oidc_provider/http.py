@@ -39,6 +39,7 @@ from .const import (
     SUPPORTED_SCOPES,
 )
 from .security import verify_client_secret
+from .token_validator import get_issuer_from_request
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -89,20 +90,6 @@ async def _load_or_generate_keys(hass: HomeAssistant) -> tuple[Any, str]:
         _LOGGER.info("RSA key pair generated and saved to storage with kid: %s", kid)
 
     return private_key, kid
-
-
-def _get_base_url(request: web.Request) -> str:
-    """Get base URL from request, respecting X-Forwarded headers if present."""
-    # Check for X-Forwarded headers (proxy setup)
-    forwarded_proto = request.headers.get("X-Forwarded-Proto")
-    forwarded_host = request.headers.get("X-Forwarded-Host")
-
-    if forwarded_proto and forwarded_host:
-        # Use forwarded headers from proxy
-        return f"{forwarded_proto}://{forwarded_host}"
-    else:
-        # Direct connection, use request URL
-        return str(request.url.origin())
 
 
 async def setup_http_endpoints(hass: HomeAssistant) -> None:
@@ -197,7 +184,7 @@ class OIDCDiscoveryView(HomeAssistantView):
 
     async def get(self, request: web.Request) -> web.Response:
         """Handle discovery request."""
-        base_url = _get_base_url(request)
+        base_url = get_issuer_from_request(request)
 
         discovery = {
             "issuer": base_url,
@@ -238,7 +225,7 @@ class OAuth2AuthorizationServerMetadataView(HomeAssistantView):
 
     async def get(self, request: web.Request) -> web.Response:
         """Handle OAuth 2.0 Authorization Server Metadata request."""
-        base_url = _get_base_url(request)
+        base_url = get_issuer_from_request(request)
 
         metadata = {
             "issuer": base_url,
@@ -627,7 +614,7 @@ class OIDCTokenView(HomeAssistantView):
         now = int(time.time())
 
         # Use dynamic issuer based on the actual base URL
-        base_url = _get_base_url(request)
+        base_url = get_issuer_from_request(request)
 
         payload = {
             "sub": user_id,
@@ -677,7 +664,7 @@ class OIDCUserInfoView(HomeAssistantView):
 
             # Decode and verify the JWT with issuer verification
             # Get expected issuer from request base URL
-            expected_issuer = _get_base_url(request)
+            expected_issuer = get_issuer_from_request(request)
 
             payload = jwt.decode(
                 access_token,
