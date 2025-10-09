@@ -38,13 +38,25 @@ def validate_access_token(hass: HomeAssistant, token: str) -> dict[str, Any] | N
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
         )
 
-        # Verify and decode the token
+        # Verify and decode the token (without audience verification first)
         payload = jwt.decode(
             token,
             public_key_pem,
             algorithms=["RS256"],
-            options={"verify_aud": False},  # We don't validate audience
+            options={"verify_aud": False},  # We verify manually below
         )
+
+        # Verify the audience claim exists and matches a registered client
+        aud = payload.get("aud")
+        if not aud:
+            _LOGGER.warning("Token missing audience claim")
+            return None
+
+        clients = hass.data[DOMAIN].get("clients", {})
+        if aud not in clients:
+            # Token audience doesn't match any registered client
+            _LOGGER.warning("Token with invalid audience: %s", aud)
+            return None
 
         return payload
     except jwt.ExpiredSignatureError:

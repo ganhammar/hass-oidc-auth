@@ -11,6 +11,8 @@ A Home Assistant custom component that turns your Home Assistant instance into a
 - **Easy client registration** via Home Assistant services
 - **No external dependencies** - runs entirely within Home Assistant
 
+This integration acts as an OIDC abstraction layer on top of Home Assistant's built-in authentication system. It does not create new user accounts or add additional login methods—users authenticate with their existing Home Assistant credentials through the standard login interface.
+
 ## Installation
 
 ### HACS (Recommended)

@@ -34,12 +34,16 @@ def test_validate_access_token_valid(mock_hass_with_keys):
     """Test validating a valid access token."""
     hass, private_key = mock_hass_with_keys
 
+    # Add clients to hass.data
+    hass.data[DOMAIN]["clients"] = {"test_client": {}}
+
     # Create a valid token
     payload = {
         "sub": "test_user",
         "iat": int(time.time()),
         "exp": int(time.time()) + 3600,
         "iss": "http://localhost",
+        "aud": "test_client",  # Required audience
     }
 
     # Convert private key to PEM for JWT library
@@ -146,6 +150,9 @@ def test_validate_access_token_with_custom_claims(mock_hass_with_keys):
     """Test validating a token with custom claims."""
     hass, private_key = mock_hass_with_keys
 
+    # Add clients to hass.data
+    hass.data[DOMAIN]["clients"] = {"test_client": {}}
+
     # Create a token with custom claims
     payload = {
         "sub": "test_user",
@@ -154,6 +161,7 @@ def test_validate_access_token_with_custom_claims(mock_hass_with_keys):
         "iat": int(time.time()),
         "exp": int(time.time()) + 3600,
         "iss": "http://localhost",
+        "aud": "test_client",  # Required audience
         "custom_claim": "custom_value",
     }
 
@@ -173,3 +181,83 @@ def test_validate_access_token_with_custom_claims(mock_hass_with_keys):
     assert result["name"] == "Test User"
     assert result["email"] == "test@example.com"
     assert result["custom_claim"] == "custom_value"
+
+
+async def test_validate_access_token_rejects_missing_audience(mock_hass_with_keys):
+    """Test that tokens without audience claim are rejected."""
+    hass, private_key = mock_hass_with_keys
+
+    # Add clients to hass.data
+    hass.data[DOMAIN]["clients"] = {"test_client": {}}
+
+    # Create token without audience
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+    payload = {
+        "sub": "user123",
+        "iat": int(time.time()),
+        "exp": int(time.time()) + 3600,
+        # Missing "aud" claim
+    }
+    token = jwt.encode(payload, private_pem, algorithm="RS256")
+
+    result = validate_access_token(hass, token)
+    assert result is None
+
+
+async def test_validate_access_token_rejects_invalid_audience(mock_hass_with_keys):
+    """Test that tokens with unregistered audience are rejected."""
+    hass, private_key = mock_hass_with_keys
+
+    # Add clients to hass.data
+    hass.data[DOMAIN]["clients"] = {"test_client": {}}
+
+    # Create token with invalid audience
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+    payload = {
+        "sub": "user123",
+        "iat": int(time.time()),
+        "exp": int(time.time()) + 3600,
+        "aud": "nonexistent_client",  # Not registered
+    }
+    token = jwt.encode(payload, private_pem, algorithm="RS256")
+
+    result = validate_access_token(hass, token)
+    assert result is None
+
+
+async def test_validate_access_token_accepts_valid_audience(mock_hass_with_keys):
+    """Test that tokens with valid registered audience are accepted."""
+    hass, private_key = mock_hass_with_keys
+
+    # Add clients to hass.data
+    hass.data[DOMAIN]["clients"] = {"test_client": {}}
+
+    # Create token with valid audience
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+    payload = {
+        "sub": "user123",
+        "iat": int(time.time()),
+        "exp": int(time.time()) + 3600,
+        "aud": "test_client",  # Registered client
+    }
+    token = jwt.encode(payload, private_pem, algorithm="RS256")
+
+    result = validate_access_token(hass, token)
+    assert result is not None
+    assert result["sub"] == "user123"
+    assert result["aud"] == "test_client"

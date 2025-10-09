@@ -4,6 +4,7 @@ import json
 import time
 from unittest.mock import AsyncMock, MagicMock, Mock
 
+import jwt
 import pytest
 
 from custom_components.oidc_provider.const import DOMAIN
@@ -498,7 +499,7 @@ async def test_oidc_authorization_view_invalid_response_type():
 async def test_oidc_authorization_view_invalid_client():
     """Test authorization endpoint with non-existent client."""
     hass = Mock()
-    hass.data = {DOMAIN: {"clients": {}}}
+    hass.data = {DOMAIN: {"clients": {}, "require_pkce": False}}
 
     request = Mock()
     request.app = {"hass": hass}
@@ -527,7 +528,8 @@ async def test_oidc_authorization_view_invalid_redirect_uri():
                 "test_client": {
                     "redirect_uris": ["https://example.com/callback"],
                 }
-            }
+            },
+            "require_pkce": False,
         }
     }
 
@@ -1323,7 +1325,6 @@ async def test_oidc_token_view_expired_refresh_token():
 @pytest.mark.asyncio
 async def test_oidc_userinfo_endpoint():
     """Test UserInfo endpoint with valid token."""
-    import jwt
     from cryptography.hazmat.backends import default_backend
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
@@ -1342,6 +1343,7 @@ async def test_oidc_userinfo_endpoint():
         "iat": int(time.time()),
         "exp": int(time.time()) + 3600,
         "iss": "http://localhost",
+        "aud": "test_client",  # Required audience
     }
 
     private_key_pem = private_key.private_bytes(
@@ -1366,6 +1368,7 @@ async def test_oidc_userinfo_endpoint():
     hass.data = {
         DOMAIN: {
             "jwt_public_key": public_key,
+            "clients": {"test_client": {}},  # Required for audience verification
         }
     }
 
@@ -1426,6 +1429,240 @@ async def test_oidc_userinfo_endpoint_invalid_token():
     request = Mock()
     request.app = {"hass": hass}
     request.headers = {"Authorization": "Bearer invalid.token.here"}
+
+    from custom_components.oidc_provider.http import OIDCUserInfoView
+
+    view = OIDCUserInfoView()
+    response = await view.get(request)
+
+    assert response.status == 401
+    body = response.body.decode("utf-8")
+    data = json.loads(body)
+    assert data["error"] == "invalid_token"
+
+
+@pytest.mark.asyncio
+async def test_oidc_authorization_view_pkce_required():
+    """Test authorization endpoint rejects requests without PKCE when required."""
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "clients": {
+                "test_client": {
+                    "redirect_uris": ["https://example.com/callback"],
+                }
+            },
+            "pending_auth_requests": {},
+            "require_pkce": True,  # PKCE is required
+        }
+    }
+
+    request = Mock()
+    request.app = {"hass": hass}
+    request.query = {
+        "client_id": "test_client",
+        "redirect_uri": "https://example.com/callback",
+        "response_type": "code",
+        "scope": "openid",
+        "state": "abc123",
+        # Missing code_challenge - should be rejected
+    }
+
+    from custom_components.oidc_provider.http import OIDCAuthorizationView
+
+    view = OIDCAuthorizationView()
+    response = await view.get(request)
+
+    assert response.status == 400
+    assert b"PKCE is required" in response.body
+
+
+@pytest.mark.asyncio
+async def test_oidc_authorization_view_pkce_optional():
+    """Test authorization endpoint allows requests without PKCE when optional."""
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "clients": {
+                "test_client": {
+                    "redirect_uris": ["https://example.com/callback"],
+                }
+            },
+            "pending_auth_requests": {},
+            "require_pkce": False,  # PKCE is optional
+        }
+    }
+
+    request = Mock()
+    request.app = {"hass": hass}
+    request.query = {
+        "client_id": "test_client",
+        "redirect_uri": "https://example.com/callback",
+        "response_type": "code",
+        "scope": "openid",
+        "state": "abc123",
+        # No code_challenge - should be allowed when PKCE is optional
+    }
+
+    from custom_components.oidc_provider.http import OIDCAuthorizationView
+
+    view = OIDCAuthorizationView()
+    response = await view.get(request)
+
+    # Should not error about PKCE, should show login form
+    assert response.status == 200
+    assert b"PKCE is required" not in response.body
+
+
+@pytest.mark.asyncio
+async def test_oidc_token_view_rejects_plain_pkce_method():
+    """Test token endpoint rejects plain PKCE method (OAuth 2.1 compliance)."""
+    from custom_components.oidc_provider.security import hash_client_secret
+
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "clients": {
+                "test_client": {
+                    "client_secret_hash": hash_client_secret("test_secret"),
+                }
+            },
+            "authorization_codes": {
+                "test_code": {
+                    "client_id": "test_client",
+                    "redirect_uri": "https://example.com/callback",
+                    "scope": "openid",
+                    "user_id": "user123",
+                    "code_challenge": "plain_challenge_value",
+                    "code_challenge_method": "plain",  # Plain method
+                    "expires_at": time.time() + 600,
+                }
+            },
+            "refresh_tokens": {},
+            "rate_limit_attempts": {},
+        }
+    }
+
+    request = Mock()
+    request.app = {"hass": hass}
+    request.remote = "127.0.0.1"
+    request.headers = {}
+    request.post = AsyncMock(
+        return_value={
+            "grant_type": "authorization_code",
+            "code": "test_code",
+            "redirect_uri": "https://example.com/callback",
+            "client_id": "test_client",
+            "client_secret": "test_secret",
+            "code_verifier": "plain_challenge_value",  # Matches challenge in plain method
+        }
+    )
+
+    from custom_components.oidc_provider.http import OIDCTokenView
+
+    view = OIDCTokenView()
+    response = await view.post(request)
+
+    # Should reject plain method even if verifier matches challenge
+    assert response.status == 400
+    body = response.body.decode("utf-8")
+    data = json.loads(body)
+    assert data["error"] == "invalid_grant"
+    assert "S256" in data["error_description"]
+    # Authorization code should be deleted
+    assert "test_code" not in hass.data[DOMAIN]["authorization_codes"]
+
+
+@pytest.mark.asyncio
+async def test_oidc_userinfo_rejects_token_without_audience():
+    """Test userinfo endpoint rejects tokens without audience claim."""
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    # Generate RSA keys
+    private_key = rsa.generate_private_key(
+        public_exponent=65537, key_size=2048, backend=default_backend()
+    )
+    public_key = private_key.public_key()
+
+    # Create a token WITHOUT audience claim
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+    token_payload = {
+        "sub": "user123",
+        "iat": int(time.time()),
+        "exp": int(time.time()) + 3600,
+        # Missing "aud" claim
+    }
+    invalid_token = jwt.encode(token_payload, private_pem, algorithm="RS256")
+
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "jwt_public_key": public_key,
+            "clients": {"test_client": {}},
+        }
+    }
+
+    request = Mock()
+    request.app = {"hass": hass}
+    request.headers = {"Authorization": f"Bearer {invalid_token}"}
+
+    from custom_components.oidc_provider.http import OIDCUserInfoView
+
+    view = OIDCUserInfoView()
+    response = await view.get(request)
+
+    assert response.status == 401
+    body = response.body.decode("utf-8")
+    data = json.loads(body)
+    assert data["error"] == "invalid_token"
+
+
+@pytest.mark.asyncio
+async def test_oidc_userinfo_rejects_token_with_invalid_audience():
+    """Test userinfo endpoint rejects tokens with unregistered audience."""
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    # Generate RSA keys
+    private_key = rsa.generate_private_key(
+        public_exponent=65537, key_size=2048, backend=default_backend()
+    )
+    public_key = private_key.public_key()
+
+    # Create a token with audience that doesn't match any registered client
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+    token_payload = {
+        "sub": "user123",
+        "iat": int(time.time()),
+        "exp": int(time.time()) + 3600,
+        "aud": "nonexistent_client",  # Not registered
+    }
+    invalid_token = jwt.encode(token_payload, private_pem, algorithm="RS256")
+
+    hass = Mock()
+    hass.data = {
+        DOMAIN: {
+            "jwt_public_key": public_key,
+            "clients": {"test_client": {}},  # Only test_client is registered
+        }
+    }
+
+    request = Mock()
+    request.app = {"hass": hass}
+    request.headers = {"Authorization": f"Bearer {invalid_token}"}
 
     from custom_components.oidc_provider.http import OIDCUserInfoView
 

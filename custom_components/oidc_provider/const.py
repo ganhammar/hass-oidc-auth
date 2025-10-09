@@ -30,3 +30,7 @@ SUPPORTED_CODE_CHALLENGE_METHODS = [CODE_CHALLENGE_METHOD_S256]
 MAX_TOKEN_ATTEMPTS = 5  # Maximum failed attempts before rate limiting
 RATE_LIMIT_WINDOW = 300  # 5 minutes in seconds
 RATE_LIMIT_PENALTY = 60  # Lockout period in seconds after max attempts
+
+# PKCE enforcement
+DEFAULT_REQUIRE_PKCE = True  # Default to required for security (OAuth 2.1 compliance)
+CONF_REQUIRE_PKCE = "require_pkce"

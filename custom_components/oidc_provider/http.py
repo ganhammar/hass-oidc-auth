@@ -21,6 +21,8 @@ from .const import (
     ACCESS_TOKEN_EXPIRY,
     AUTHORIZATION_CODE_EXPIRY,
     CODE_CHALLENGE_METHOD_S256,
+    CONF_REQUIRE_PKCE,
+    DEFAULT_REQUIRE_PKCE,
     DOMAIN,
     GRANT_TYPE_AUTHORIZATION_CODE,
     GRANT_TYPE_REFRESH_TOKEN,
@@ -231,6 +233,15 @@ class OIDCAuthorizationView(HomeAssistantView):
         # Validate parameters
         if not client_id or not redirect_uri or response_type != RESPONSE_TYPE_CODE:
             return web.Response(text="Invalid request", status=400)
+
+        # Check if PKCE is required
+        require_pkce = hass.data[DOMAIN].get(CONF_REQUIRE_PKCE, DEFAULT_REQUIRE_PKCE)
+
+        if require_pkce and not code_challenge:
+            return web.Response(
+                text="PKCE is required. Please provide code_challenge parameter.",
+                status=400,
+            )
 
         # Validate PKCE parameters
         if code_challenge:
@@ -450,19 +461,29 @@ class OIDCTokenView(HomeAssistantView):
                 )
 
             try:
-                # Verify code_verifier matches code_challenge
+                # Verify code_verifier matches code_challenge (only S256 supported)
                 code_challenge_method = auth_data.get(
                     "code_challenge_method", CODE_CHALLENGE_METHOD_S256
                 )
-                if code_challenge_method == CODE_CHALLENGE_METHOD_S256:
-                    # Compute SHA256 hash of code_verifier
-                    verifier_hash = hashlib.sha256(code_verifier.encode("ascii")).digest()
-                    computed_challenge = (
-                        base64.urlsafe_b64encode(verifier_hash).decode("ascii").rstrip("=")
+                if code_challenge_method != CODE_CHALLENGE_METHOD_S256:
+                    # Only S256 method is supported (RFC 7636 + OAuth 2.1)
+                    del auth_codes[code]
+                    return web.json_response(
+                        {
+                            "error": "invalid_grant",
+                            "error_description": (
+                                f"Unsupported code_challenge_method: {code_challenge_method}. "
+                                "Only S256 is supported."
+                            ),
+                        },
+                        status=400,
                     )
-                else:
-                    # Plain method (not recommended, but included for spec compliance)
-                    computed_challenge = code_verifier
+
+                # Compute SHA256 hash of code_verifier
+                verifier_hash = hashlib.sha256(code_verifier.encode("ascii")).digest()
+                computed_challenge = (
+                    base64.urlsafe_b64encode(verifier_hash).decode("ascii").rstrip("=")
+                )
 
                 if computed_challenge != code_challenge:
                     del auth_codes[code]
@@ -597,19 +618,29 @@ class OIDCUserInfoView(HomeAssistantView):
                 format=serialization.PublicFormat.SubjectPublicKeyInfo,
             )
 
-            # Decode and verify the JWT
-            # We don't verify audience here because different clients may use the token
-            # The audience is set to the client_id when the token is created
+            # Decode and verify the JWT (without audience verification first)
+            # We'll verify the audience exists and matches a registered client
             payload = jwt.decode(
                 access_token,
                 public_pem,
                 algorithms=["RS256"],
                 options={
-                    "verify_aud": False,  # We could verify but would need to know the client_id
+                    "verify_aud": False,  # We verify manually below
                     "verify_signature": True,
                     "verify_exp": True,
                 },
             )
+
+            # Verify the audience claim exists and matches a registered client
+            aud = payload.get("aud")
+            if not aud:
+                return web.json_response({"error": "invalid_token"}, status=401)
+
+            clients = hass.data[DOMAIN].get("clients", {})
+            if aud not in clients:
+                # Token audience doesn't match any registered client (confused deputy attack)
+                _LOGGER.warning("Token with invalid audience: %s", aud)
+                return web.json_response({"error": "invalid_token"}, status=401)
 
             # Extract user info from JWT
             user_id = payload.get("sub")

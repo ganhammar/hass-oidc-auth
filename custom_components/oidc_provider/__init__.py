@@ -10,11 +10,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .client_manager import create_client
+from .const import CONF_REQUIRE_PKCE, DEFAULT_REQUIRE_PKCE, DOMAIN
 from .http import setup_http_endpoints
 
 _LOGGER = logging.getLogger(__name__)
-
-DOMAIN = "oidc_provider"
 STORAGE_VERSION = 1
 STORAGE_KEY = f"{DOMAIN}.clients"
 
@@ -38,6 +37,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN]["authorization_codes"] = {}
     hass.data[DOMAIN]["refresh_tokens"] = {}
     hass.data[DOMAIN]["store"] = store
+
+    # Store configuration options
+    hass.data[DOMAIN][CONF_REQUIRE_PKCE] = entry.options.get(
+        CONF_REQUIRE_PKCE, DEFAULT_REQUIRE_PKCE
+    )
+
+    # Listen for options updates
+    entry.async_on_unload(entry.add_update_listener(async_update_options))
 
     # Register HTTP endpoints
     setup_http_endpoints(hass)
@@ -240,6 +247,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     _LOGGER.info("OIDC Provider initialized")
     return True
+
+
+async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Handle options update."""
+    hass.data[DOMAIN][CONF_REQUIRE_PKCE] = entry.options.get(
+        CONF_REQUIRE_PKCE, DEFAULT_REQUIRE_PKCE
+    )
+    _LOGGER.info("PKCE enforcement updated: %s", hass.data[DOMAIN][CONF_REQUIRE_PKCE])
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

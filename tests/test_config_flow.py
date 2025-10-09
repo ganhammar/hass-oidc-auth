@@ -105,31 +105,46 @@ class TestOIDCProviderOptionsFlow:
         assert result["type"] == data_entry_flow.FlowResultType.FORM
         assert result["step_id"] == "init"
 
-    async def test_init_step_with_user_input_shows_form(self):
-        """Test init step with user input still shows form."""
+    async def test_init_step_with_user_input_creates_entry(self):
+        """Test init step with user input creates entry."""
         mock_config_entry = Mock()
+        mock_config_entry.options = {}
         # Use internal _config_entry attribute to avoid deprecated setter
         flow = OIDCProviderOptionsFlow.__new__(OIDCProviderOptionsFlow)
         flow._config_entry = mock_config_entry
 
-        result = await flow.async_step_init(user_input={})
+        result = await flow.async_step_init(user_input={"require_pkce": True})
 
-        # The current implementation just shows the form regardless of input
-        assert result["type"] == data_entry_flow.FlowResultType.FORM
-        assert result["step_id"] == "init"
+        assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+        assert result["data"] == {"require_pkce": True}
 
-    async def test_init_step_does_not_update_options(self):
-        """Test init step does not update config entry options."""
+    async def test_init_step_shows_pkce_option(self):
+        """Test init step shows PKCE enforcement option."""
         mock_config_entry = Mock()
-        mock_config_entry.options = {"existing": "option"}
-
+        mock_config_entry.options = {}
         # Use internal _config_entry attribute to avoid deprecated setter
         flow = OIDCProviderOptionsFlow.__new__(OIDCProviderOptionsFlow)
         flow._config_entry = mock_config_entry
 
-        result = await flow.async_step_init(user_input={"new": "value"})
+        result = await flow.async_step_init(user_input=None)
 
-        # Verify it shows form, not create_entry
+        # Verify form contains PKCE option
         assert result["type"] == data_entry_flow.FlowResultType.FORM
-        # Options should not be modified
-        assert mock_config_entry.options == {"existing": "option"}
+        assert "require_pkce" in result["data_schema"].schema
+
+    async def test_init_step_defaults_to_pkce_required(self):
+        """Test init step defaults PKCE to True."""
+        from custom_components.oidc_provider.const import DEFAULT_REQUIRE_PKCE
+
+        mock_config_entry = Mock()
+        mock_config_entry.options = {}
+        # Use internal _config_entry attribute to avoid deprecated setter
+        flow = OIDCProviderOptionsFlow.__new__(OIDCProviderOptionsFlow)
+        flow._config_entry = mock_config_entry
+
+        result = await flow.async_step_init(user_input=None)
+
+        # Verify form contains PKCE option with correct default
+        assert result["type"] == data_entry_flow.FlowResultType.FORM
+        # The default should be True (from DEFAULT_REQUIRE_PKCE constant)
+        assert DEFAULT_REQUIRE_PKCE is True
