@@ -11,13 +11,16 @@ _LOGGER = logging.getLogger(__name__)
 DOMAIN = "oidc_provider"
 
 
-def validate_access_token(hass: HomeAssistant, token: str) -> dict[str, Any] | None:
+def validate_access_token(
+    hass: HomeAssistant, token: str, expected_issuer: str
+) -> dict[str, Any] | None:
     """
     Validate an OAuth access token issued by this OIDC provider.
 
     Args:
         hass: Home Assistant instance
         token: The access token to validate
+        expected_issuer: Expected issuer URL
 
     Returns:
         Token payload if valid, None otherwise
@@ -38,12 +41,15 @@ def validate_access_token(hass: HomeAssistant, token: str) -> dict[str, Any] | N
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
         )
 
-        # Verify and decode the token (without audience verification first)
+        # Verify and decode the token with issuer verification
         payload = jwt.decode(
             token,
             public_key_pem,
             algorithms=["RS256"],
-            options={"verify_aud": False},  # We verify manually below
+            issuer=expected_issuer,
+            options={
+                "verify_aud": False,  # We verify manually below
+            },
         )
 
         # Verify the audience claim exists and matches a registered client

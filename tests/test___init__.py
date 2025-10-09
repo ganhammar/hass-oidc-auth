@@ -416,3 +416,60 @@ class TestListClientsService:
 
         notification_call = mock_hass.services.async_call.call_args
         assert "No clients registered" in notification_call[0][2]["message"]
+
+
+class TestKeyPersistence:
+    """Test RSA key persistence."""
+
+    async def test_keys_are_saved_on_first_setup(self, mock_hass, mock_config_entry, mock_store):
+        """Test that RSA keys are saved to storage on first setup."""
+        mock_config_entry.options = {}
+
+        with patch("custom_components.oidc_provider.Store", return_value=mock_store):
+            with patch("custom_components.oidc_provider.http.Store", return_value=mock_store):
+                result = await async_setup_entry(mock_hass, mock_config_entry)
+
+        assert result is True
+        # Verify store was called to save keys
+        mock_store.async_save.assert_called_once()
+        saved_data = mock_store.async_save.call_args[0][0]
+        assert "private_key_pem" in saved_data
+        assert "kid" in saved_data
+        assert "created_at" in saved_data
+
+    async def test_keys_are_loaded_from_storage(self, mock_hass, mock_config_entry):
+        """Test that RSA keys are loaded from storage if they exist."""
+        from cryptography.hazmat.backends import default_backend
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        # Generate a key to store
+        test_private_key = rsa.generate_private_key(
+            public_exponent=65537, key_size=2048, backend=default_backend()
+        )
+        test_private_pem = test_private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+
+        mock_store = Mock()
+        mock_store.async_load = AsyncMock(
+            return_value={
+                "private_key_pem": test_private_pem.decode(),
+                "kid": "test-existing-kid",
+                "created_at": 1234567890.0,
+            }
+        )
+        mock_store.async_save = AsyncMock()
+        mock_config_entry.options = {}
+
+        with patch("custom_components.oidc_provider.Store", return_value=mock_store):
+            with patch("custom_components.oidc_provider.http.Store", return_value=mock_store):
+                result = await async_setup_entry(mock_hass, mock_config_entry)
+
+        assert result is True
+        # Verify store was not called to save (keys already exist)
+        mock_store.async_save.assert_not_called()
+        # Verify the kid matches what was loaded
+        assert mock_hass.data[DOMAIN]["jwt_kid"] == "test-existing-kid"

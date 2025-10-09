@@ -47,7 +47,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(async_update_options))
 
     # Register HTTP endpoints
-    setup_http_endpoints(hass)
+    await setup_http_endpoints(hass)
 
     # Register static path for panel JS
     await hass.http.async_register_static_paths(

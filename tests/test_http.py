@@ -184,6 +184,7 @@ async def test_oidc_jwks_endpoint():
     request.app["hass"].data = {
         DOMAIN: {
             "jwt_public_key": public_key,
+            "jwt_kid": "test-kid-1",
         }
     }
 
@@ -201,6 +202,7 @@ async def test_oidc_jwks_endpoint():
     assert key["kty"] == "RSA"
     assert key["use"] == "sig"
     assert key["alg"] == "RS256"
+    assert key["kid"] == "test-kid-1"
     assert "n" in key  # modulus
     assert "e" in key  # exponent
 
@@ -737,6 +739,7 @@ async def test_oidc_token_view_basic_auth():
             "refresh_tokens": {},
             "rate_limit_attempts": {},
             "jwt_private_key": private_key,
+            "jwt_kid": "test-kid-1",
         }
     }
 
@@ -1130,6 +1133,7 @@ async def test_oidc_token_view_valid_pkce():
             "refresh_tokens": {},
             "rate_limit_attempts": {},
             "jwt_private_key": private_key,
+            "jwt_kid": "test-kid-1",
         }
     }
 
@@ -1199,13 +1203,18 @@ async def test_oidc_token_view_refresh_token():
             },
             "rate_limit_attempts": {},
             "jwt_private_key": private_key,
+            "jwt_kid": "test-kid-1",
         }
     }
+
+    mock_url = Mock()
+    mock_url.origin.return_value = "http://localhost"
 
     request = MagicMock()
     request.app = {"hass": hass}
     request.remote = "127.0.0.1"
     request.headers = {}
+    request.url = mock_url
     request.post = AsyncMock(
         return_value={
             "grant_type": "refresh_token",
@@ -1368,13 +1377,19 @@ async def test_oidc_userinfo_endpoint():
     hass.data = {
         DOMAIN: {
             "jwt_public_key": public_key,
+            "jwt_kid": "test-kid-1",
             "clients": {"test_client": {}},  # Required for audience verification
         }
     }
 
+    # Mock request with proper URL
+    mock_url = Mock()
+    mock_url.origin.return_value = "http://localhost"
+
     request = Mock()
     request.app = {"hass": hass}
     request.headers = {"Authorization": f"Bearer {token}"}
+    request.url = mock_url
 
     from custom_components.oidc_provider.http import OIDCUserInfoView
 
@@ -1423,6 +1438,7 @@ async def test_oidc_userinfo_endpoint_invalid_token():
     hass.data = {
         DOMAIN: {
             "jwt_public_key": public_key,
+            "jwt_kid": "test-kid-1",
         }
     }
 
@@ -1605,6 +1621,7 @@ async def test_oidc_userinfo_rejects_token_without_audience():
     hass.data = {
         DOMAIN: {
             "jwt_public_key": public_key,
+            "jwt_kid": "test-kid-1",
             "clients": {"test_client": {}},
         }
     }

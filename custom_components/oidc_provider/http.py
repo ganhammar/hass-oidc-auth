@@ -6,6 +6,7 @@ import html
 import logging
 import secrets
 import time
+import uuid
 from typing import Any
 
 import jwt
@@ -15,6 +16,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
 
 from .client_manager import create_client
 from .const import (
@@ -31,12 +33,62 @@ from .const import (
     RATE_LIMIT_WINDOW,
     REFRESH_TOKEN_EXPIRY,
     RESPONSE_TYPE_CODE,
+    STORAGE_KEY_KEYS,
+    STORAGE_VERSION,
     SUPPORTED_CODE_CHALLENGE_METHODS,
     SUPPORTED_SCOPES,
 )
 from .security import verify_client_secret
 
 _LOGGER = logging.getLogger(__name__)
+
+
+async def _load_or_generate_keys(hass: HomeAssistant) -> tuple[Any, str]:
+    """Load existing RSA keys from storage or generate new ones.
+
+    Returns:
+        Tuple of (private_key, kid)
+    """
+    store = Store(hass, STORAGE_VERSION, STORAGE_KEY_KEYS)
+    stored_keys = await store.async_load()
+
+    if stored_keys and "private_key_pem" in stored_keys:
+        # Load existing key
+        _LOGGER.info("Loading existing RSA key from storage")
+        private_key = serialization.load_pem_private_key(
+            stored_keys["private_key_pem"].encode(),
+            password=None,
+            backend=default_backend(),
+        )
+        kid = stored_keys.get("kid", "1")  # Fallback to "1" for old keys
+    else:
+        # Generate new key
+        _LOGGER.info("Generating new RSA key pair for JWT signing")
+        private_key = rsa.generate_private_key(
+            public_exponent=65537, key_size=2048, backend=default_backend()
+        )
+
+        # Generate unique key ID
+        kid = str(uuid.uuid4())
+
+        # Save to storage
+        private_pem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+
+        await store.async_save(
+            {
+                "private_key_pem": private_pem.decode(),
+                "kid": kid,
+                "created_at": time.time(),
+            }
+        )
+
+        _LOGGER.info("RSA key pair generated and saved to storage with kid: %s", kid)
+
+    return private_key, kid
 
 
 def _get_base_url(request: web.Request) -> str:
@@ -53,15 +105,14 @@ def _get_base_url(request: web.Request) -> str:
         return str(request.url.origin())
 
 
-def setup_http_endpoints(hass: HomeAssistant) -> None:
+async def setup_http_endpoints(hass: HomeAssistant) -> None:
     """Set up the OIDC HTTP endpoints."""
-    # Generate RSA key pair for JWT signing
+    # Load or generate RSA key pair for JWT signing
     if "jwt_private_key" not in hass.data[DOMAIN]:
-        private_key = rsa.generate_private_key(
-            public_exponent=65537, key_size=2048, backend=default_backend()
-        )
+        private_key, kid = await _load_or_generate_keys(hass)
         hass.data[DOMAIN]["jwt_private_key"] = private_key
         hass.data[DOMAIN]["jwt_public_key"] = private_key.public_key()
+        hass.data[DOMAIN]["jwt_kid"] = kid
 
     # Initialize rate limiting storage
     if "rate_limit_attempts" not in hass.data[DOMAIN]:
@@ -509,7 +560,9 @@ class OIDCTokenView(HomeAssistantView):
         user_id = auth_data["user_id"]
         scope = auth_data["scope"]
 
-        access_token = self._generate_access_token(hass, user_id, scope, data.get("client_id"))
+        access_token = self._generate_access_token(
+            _request, hass, user_id, scope, data.get("client_id")
+        )
         refresh_token = secrets.token_urlsafe(32)
 
         # Store refresh token
@@ -555,7 +608,7 @@ class OIDCTokenView(HomeAssistantView):
 
         # Generate new access token
         access_token = self._generate_access_token(
-            hass, token_data["user_id"], token_data["scope"], data.get("client_id")
+            _request, hass, token_data["user_id"], token_data["scope"], data.get("client_id")
         )
 
         return web.json_response(
@@ -568,28 +621,32 @@ class OIDCTokenView(HomeAssistantView):
         )
 
     def _generate_access_token(
-        self, hass: HomeAssistant, user_id: str, scope: str, client_id: str
+        self, request: web.Request, hass: HomeAssistant, user_id: str, scope: str, client_id: str
     ) -> str:
         """Generate JWT access token."""
         now = int(time.time())
+
+        # Use dynamic issuer based on the actual base URL
+        base_url = _get_base_url(request)
 
         payload = {
             "sub": user_id,
             "iat": now,
             "exp": now + ACCESS_TOKEN_EXPIRY,
-            "iss": "home-assistant",
+            "iss": base_url,
             "aud": client_id,
             "scope": scope,
         }
 
         private_key = hass.data[DOMAIN]["jwt_private_key"]
+        kid = hass.data[DOMAIN]["jwt_kid"]
         private_pem = private_key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption(),
         )
 
-        return jwt.encode(payload, private_pem, algorithm="RS256")
+        return jwt.encode(payload, private_pem, algorithm="RS256", headers={"kid": kid})
 
 
 class OIDCUserInfoView(HomeAssistantView):
@@ -618,12 +675,15 @@ class OIDCUserInfoView(HomeAssistantView):
                 format=serialization.PublicFormat.SubjectPublicKeyInfo,
             )
 
-            # Decode and verify the JWT (without audience verification first)
-            # We'll verify the audience exists and matches a registered client
+            # Decode and verify the JWT with issuer verification
+            # Get expected issuer from request base URL
+            expected_issuer = _get_base_url(request)
+
             payload = jwt.decode(
                 access_token,
                 public_pem,
                 algorithms=["RS256"],
+                issuer=expected_issuer,
                 options={
                     "verify_aud": False,  # We verify manually below
                     "verify_signature": True,
@@ -681,6 +741,7 @@ class OIDCJWKSView(HomeAssistantView):
         """Handle JWKS request."""
         hass = request.app["hass"]
         public_key = hass.data[DOMAIN]["jwt_public_key"]
+        kid = hass.data[DOMAIN]["jwt_kid"]
 
         # Get the public key numbers
         public_numbers = public_key.public_numbers()
@@ -698,7 +759,7 @@ class OIDCJWKSView(HomeAssistantView):
                 {
                     "kty": "RSA",
                     "use": "sig",
-                    "kid": "1",
+                    "kid": kid,
                     "alg": "RS256",
                     "n": int_to_base64url(public_numbers.n),  # Modulus
                     "e": int_to_base64url(public_numbers.e),  # Exponent
