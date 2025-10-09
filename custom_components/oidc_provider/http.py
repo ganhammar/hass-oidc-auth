@@ -545,17 +545,18 @@ class OIDCTokenView(HomeAssistantView):
 
         # Generate tokens
         user_id = auth_data["user_id"]
+        client_id = auth_data["client_id"]
         scope = auth_data["scope"]
 
         access_token = self._generate_access_token(
-            _request, hass, user_id, scope, data.get("client_id")
+            _request, hass, user_id, scope, client_id
         )
         refresh_token = secrets.token_urlsafe(32)
 
         # Store refresh token
         hass.data[DOMAIN]["refresh_tokens"][refresh_token] = {
             "user_id": user_id,
-            "client_id": data.get("client_id"),
+            "client_id": client_id,
             "scope": scope,
             "expires_at": time.time() + REFRESH_TOKEN_EXPIRY,
         }
@@ -595,7 +596,7 @@ class OIDCTokenView(HomeAssistantView):
 
         # Generate new access token
         access_token = self._generate_access_token(
-            _request, hass, token_data["user_id"], token_data["scope"], data.get("client_id")
+            _request, hass, token_data["user_id"], token_data["scope"], token_data["client_id"]
         )
 
         return web.json_response(
