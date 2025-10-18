@@ -1,11 +1,11 @@
 {
   "domain": "oidc_provider",
   "name": "OIDC Provider",
-  "version": "0.1.0",
-  "documentation": "https://github.com/ganhammar/hass-oidc-provider",
-  "issue_tracker": "https://github.com/ganhammar/hass-oidc-provider/issues",
-  "requirements": ["PyJWT>=2.8.0", "cryptography>=43.0.0"],
   "codeowners": ["@ganhammar"],
   "config_flow": true,
-  "iot_class": "local_push"
+  "documentation": "https://github.com/ganhammar/hass-oidc-provider",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/ganhammar/hass-oidc-provider/issues",
+  "requirements": ["PyJWT>=2.8.0", "cryptography>=43.0.0"],
+  "version": "0.1.0"
 }
