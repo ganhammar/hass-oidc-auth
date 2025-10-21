@@ -1,5 +1,4 @@
 {
   "name": "OIDC Provider",
-  "render_readme": true,
-  "filename": "oidc_provider"
+  "render_readme": true
 }
