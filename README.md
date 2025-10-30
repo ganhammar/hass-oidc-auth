@@ -17,22 +17,24 @@ This integration acts as an OIDC abstraction layer on top of Home Assistant's bu
 
 ### HACS (Recommended)
 
-1. Add this repository as a custom repository in HACS
-2. Search for "OIDC Provider" in HACS
-3. Click "Install"
-4. Restart Home Assistant
+1. Open HACS in Home Assistant
+1. Search for "OIDC Provider"
+1. Click "Download"
+1. Restart Home Assistant
+1. Configure the integration (see Configuration section below)
 
 ### Manual
 
 1. Copy the `custom_components/oidc_provider` folder to your Home Assistant `config/custom_components/` directory
-2. Restart Home Assistant
+1. Restart Home Assistant
+1. Configure the integration (see Configuration section below)
 
 ## Configuration
 
 1. Go to **Settings** → **Devices & Services**
-2. Click **Add Integration**
-3. Search for "OIDC Provider"
-4. Click to install
+1. Click **Add Integration**
+1. Search for "OIDC Provider"
+1. Click to install
 
 ## Usage
 
