@@ -719,6 +719,9 @@ async def test_oidc_token_view_basic_auth():
         public_exponent=65537, key_size=2048, backend=default_backend()
     )
 
+    mock_token_store = Mock()
+    mock_token_store.async_save = AsyncMock()
+
     hass = Mock()
     hass.data = {
         DOMAIN: {
@@ -740,6 +743,7 @@ async def test_oidc_token_view_basic_auth():
             "rate_limit_attempts": {},
             "jwt_private_key": private_key,
             "jwt_kid": "test-kid-1",
+            "token_store": mock_token_store,
         }
     }
 
@@ -769,6 +773,11 @@ async def test_oidc_token_view_basic_auth():
     assert "access_token" in data
     assert "refresh_token" in data
     assert data["token_type"] == "Bearer"
+
+    # Verify refresh tokens were persisted
+    mock_token_store.async_save.assert_called_once()
+    saved_data = mock_token_store.async_save.call_args[0][0]
+    assert "refresh_tokens" in saved_data
 
 
 @pytest.mark.asyncio
@@ -1111,6 +1120,9 @@ async def test_oidc_token_view_valid_pkce():
         public_exponent=65537, key_size=2048, backend=default_backend()
     )
 
+    mock_token_store = Mock()
+    mock_token_store.async_save = AsyncMock()
+
     hass = Mock()
     hass.data = {
         DOMAIN: {
@@ -1134,6 +1146,7 @@ async def test_oidc_token_view_valid_pkce():
             "rate_limit_attempts": {},
             "jwt_private_key": private_key,
             "jwt_kid": "test-kid-1",
+            "token_store": mock_token_store,
         }
     }
 
@@ -1171,6 +1184,9 @@ async def test_oidc_token_view_valid_pkce():
     # Verify refresh token was created
     assert len(hass.data[DOMAIN]["refresh_tokens"]) == 1
 
+    # Verify refresh tokens were persisted
+    mock_token_store.async_save.assert_called_once()
+
 
 @pytest.mark.asyncio
 async def test_oidc_token_view_refresh_token():
@@ -1184,6 +1200,9 @@ async def test_oidc_token_view_refresh_token():
     private_key = rsa.generate_private_key(
         public_exponent=65537, key_size=2048, backend=default_backend()
     )
+
+    mock_token_store = Mock()
+    mock_token_store.async_save = AsyncMock()
 
     hass = Mock()
     hass.data = {
@@ -1204,6 +1223,7 @@ async def test_oidc_token_view_refresh_token():
             "rate_limit_attempts": {},
             "jwt_private_key": private_key,
             "jwt_kid": "test-kid-1",
+            "token_store": mock_token_store,
         }
     }
 
@@ -1284,6 +1304,9 @@ async def test_oidc_token_view_expired_refresh_token():
     """Test token endpoint with expired refresh token."""
     from custom_components.oidc_provider.security import hash_client_secret
 
+    mock_token_store = Mock()
+    mock_token_store.async_save = AsyncMock()
+
     hass = Mock()
     hass.data = {
         DOMAIN: {
@@ -1301,6 +1324,7 @@ async def test_oidc_token_view_expired_refresh_token():
                 }
             },
             "rate_limit_attempts": {},
+            "token_store": mock_token_store,
         }
     }
 
@@ -1329,6 +1353,11 @@ async def test_oidc_token_view_expired_refresh_token():
 
     # Verify token was deleted
     assert "expired_token" not in hass.data[DOMAIN]["refresh_tokens"]
+
+    # Verify deletion was persisted
+    mock_token_store.async_save.assert_called_once()
+    saved_data = mock_token_store.async_save.call_args[0][0]
+    assert "expired_token" not in saved_data["refresh_tokens"]
 
 
 @pytest.mark.asyncio

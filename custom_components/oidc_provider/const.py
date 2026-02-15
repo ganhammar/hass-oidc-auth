@@ -5,6 +5,7 @@ DOMAIN = "oidc_provider"
 # Storage
 STORAGE_VERSION = 1
 STORAGE_KEY_KEYS = f"{DOMAIN}.keys"
+STORAGE_KEY_TOKENS = f"{DOMAIN}.tokens"
 
 # Token expiry times (in seconds)
 ACCESS_TOKEN_EXPIRY = 3600  # 1 hour
