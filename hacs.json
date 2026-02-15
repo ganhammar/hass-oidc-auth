@@ -1,4 +1,6 @@
 {
   "name": "OIDC Provider",
-  "render_readme": true
+  "render_readme": true,
+  "zip_release": true,
+  "filename": "oidc_provider.zip"
 }
