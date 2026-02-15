@@ -48,9 +48,7 @@ async def _save_refresh_tokens(hass: HomeAssistant) -> None:
     """Persist the current in-memory refresh tokens to the token store."""
     token_store = hass.data[DOMAIN].get("token_store")
     if token_store:
-        await token_store.async_save(
-            {"refresh_tokens": hass.data[DOMAIN]["refresh_tokens"]}
-        )
+        await token_store.async_save({"refresh_tokens": hass.data[DOMAIN]["refresh_tokens"]})
 
 
 async def _load_or_generate_keys(hass: HomeAssistant) -> tuple[Any, str]:
