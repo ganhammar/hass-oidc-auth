@@ -11,7 +11,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.storage import Store
 
 from .client_manager import create_client
-from .const import CONF_REQUIRE_PKCE, DEFAULT_REQUIRE_PKCE, DOMAIN
+from .const import CONF_REQUIRE_PKCE, DEFAULT_REQUIRE_PKCE, DOMAIN, STORAGE_KEY_TOKENS
 from .http import setup_http_endpoints
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,8 +38,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Store clients and tokens
     hass.data[DOMAIN]["clients"] = stored_data.get("clients", {}) if stored_data else {}
     hass.data[DOMAIN]["authorization_codes"] = {}
-    hass.data[DOMAIN]["refresh_tokens"] = {}
     hass.data[DOMAIN]["store"] = store
+
+    # Load refresh tokens from persistent storage, filtering expired ones
+    token_store = Store(hass, STORAGE_VERSION, STORAGE_KEY_TOKENS)
+    stored_tokens = await token_store.async_load()
+    current_time = time.time()
+    if stored_tokens and "refresh_tokens" in stored_tokens:
+        hass.data[DOMAIN]["refresh_tokens"] = {
+            token: data
+            for token, data in stored_tokens["refresh_tokens"].items()
+            if data.get("expires_at", 0) > current_time
+        }
+    else:
+        hass.data[DOMAIN]["refresh_tokens"] = {}
+    hass.data[DOMAIN]["token_store"] = token_store
 
     # Store configuration options
     hass.data[DOMAIN][CONF_REQUIRE_PKCE] = entry.options.get(

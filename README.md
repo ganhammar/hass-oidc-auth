@@ -126,8 +126,7 @@ Once installed, your Home Assistant instance exposes the following OIDC endpoint
 
 - **HTTPS Required**: Your Home Assistant instance must be accessible via HTTPS with a valid certificate for OIDC to work with external services
 - **Client Secrets**: Store client secrets securely and never commit them to version control
-- **Token Storage**: Tokens are stored in memory only and will be lost on restart. Clients should be prepared to re-authenticate.
-- **Refresh Tokens**: Valid for 30 days by default
+- **Refresh Tokens**: Persisted across restarts, valid for 30 days by default
 - **Access Tokens**: Valid for 1 hour by default
 
 ## Supported Scopes

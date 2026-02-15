@@ -44,6 +44,15 @@ from .token_validator import get_issuer_from_request
 _LOGGER = logging.getLogger(__name__)
 
 
+async def _save_refresh_tokens(hass: HomeAssistant) -> None:
+    """Persist the current in-memory refresh tokens to the token store."""
+    token_store = hass.data[DOMAIN].get("token_store")
+    if token_store:
+        await token_store.async_save(
+            {"refresh_tokens": hass.data[DOMAIN]["refresh_tokens"]}
+        )
+
+
 async def _load_or_generate_keys(hass: HomeAssistant) -> tuple[Any, str]:
     """Load existing RSA keys from storage or generate new ones.
 
@@ -559,6 +568,9 @@ class OIDCTokenView(HomeAssistantView):
             "expires_at": time.time() + REFRESH_TOKEN_EXPIRY,
         }
 
+        # Persist refresh tokens to storage
+        await _save_refresh_tokens(hass)
+
         # Delete used authorization code
         del auth_codes[code]
 
@@ -587,6 +599,7 @@ class OIDCTokenView(HomeAssistantView):
         # Validate refresh token
         if token_data["expires_at"] < time.time():
             del refresh_tokens[refresh_token]
+            await _save_refresh_tokens(hass)
             return web.json_response({"error": "invalid_grant"}, status=400)
 
         if token_data["client_id"] != data.get("client_id"):

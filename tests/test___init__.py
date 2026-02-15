@@ -1,5 +1,6 @@
 """Test __init__.py for OIDC Provider integration."""
 
+import time
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -44,6 +45,15 @@ def mock_store():
     return store
 
 
+@pytest.fixture
+def mock_token_store():
+    """Create a mock token store."""
+    store = Mock()
+    store.async_load = AsyncMock(return_value=None)
+    store.async_save = AsyncMock()
+    return store
+
+
 class TestAsyncSetup:
     """Test async_setup function."""
 
@@ -63,10 +73,17 @@ class TestAsyncSetupEntry:
     @patch("custom_components.oidc_provider.setup_http_endpoints")
     @patch("custom_components.oidc_provider.async_register_built_in_panel")
     async def test_async_setup_entry_initializes_data(
-        self, mock_panel, mock_http, mock_store_class, mock_hass, mock_config_entry, mock_store
+        self,
+        mock_panel,
+        mock_http,
+        mock_store_class,
+        mock_hass,
+        mock_config_entry,
+        mock_store,
+        mock_token_store,
     ):
         """Test async_setup_entry initializes all data structures."""
-        mock_store_class.return_value = mock_store
+        mock_store_class.side_effect = [mock_store, mock_token_store]
 
         result = await async_setup_entry(mock_hass, mock_config_entry)
 
@@ -76,18 +93,27 @@ class TestAsyncSetupEntry:
         assert "authorization_codes" in mock_hass.data[DOMAIN]
         assert "refresh_tokens" in mock_hass.data[DOMAIN]
         assert "store" in mock_hass.data[DOMAIN]
+        assert "token_store" in mock_hass.data[DOMAIN]
+        assert mock_hass.data[DOMAIN]["token_store"] is mock_token_store
 
     @patch("custom_components.oidc_provider.Store")
     @patch("custom_components.oidc_provider.setup_http_endpoints")
     @patch("custom_components.oidc_provider.async_register_built_in_panel")
     async def test_async_setup_entry_loads_stored_clients(
-        self, mock_panel, mock_http, mock_store_class, mock_hass, mock_config_entry, mock_store
+        self,
+        mock_panel,
+        mock_http,
+        mock_store_class,
+        mock_hass,
+        mock_config_entry,
+        mock_store,
+        mock_token_store,
     ):
         """Test async_setup_entry loads stored clients."""
         mock_store.async_load = AsyncMock(
             return_value={"clients": {"test_id": {"client_name": "Test Client"}}}
         )
-        mock_store_class.return_value = mock_store
+        mock_store_class.side_effect = [mock_store, mock_token_store]
 
         result = await async_setup_entry(mock_hass, mock_config_entry)
 
@@ -98,11 +124,58 @@ class TestAsyncSetupEntry:
     @patch("custom_components.oidc_provider.Store")
     @patch("custom_components.oidc_provider.setup_http_endpoints")
     @patch("custom_components.oidc_provider.async_register_built_in_panel")
+    async def test_async_setup_entry_loads_stored_refresh_tokens(
+        self,
+        mock_panel,
+        mock_http,
+        mock_store_class,
+        mock_hass,
+        mock_config_entry,
+        mock_store,
+        mock_token_store,
+    ):
+        """Test async_setup_entry loads refresh tokens from storage and filters expired ones."""
+        mock_token_store.async_load = AsyncMock(
+            return_value={
+                "refresh_tokens": {
+                    "valid_token": {
+                        "user_id": "user1",
+                        "client_id": "client1",
+                        "scope": "openid",
+                        "expires_at": time.time() + 86400,
+                    },
+                    "expired_token": {
+                        "user_id": "user2",
+                        "client_id": "client2",
+                        "scope": "openid",
+                        "expires_at": time.time() - 100,
+                    },
+                }
+            }
+        )
+        mock_store_class.side_effect = [mock_store, mock_token_store]
+
+        result = await async_setup_entry(mock_hass, mock_config_entry)
+
+        assert result is True
+        assert "valid_token" in mock_hass.data[DOMAIN]["refresh_tokens"]
+        assert "expired_token" not in mock_hass.data[DOMAIN]["refresh_tokens"]
+
+    @patch("custom_components.oidc_provider.Store")
+    @patch("custom_components.oidc_provider.setup_http_endpoints")
+    @patch("custom_components.oidc_provider.async_register_built_in_panel")
     async def test_async_setup_entry_registers_http_endpoints(
-        self, mock_panel, mock_http, mock_store_class, mock_hass, mock_config_entry, mock_store
+        self,
+        mock_panel,
+        mock_http,
+        mock_store_class,
+        mock_hass,
+        mock_config_entry,
+        mock_store,
+        mock_token_store,
     ):
         """Test async_setup_entry registers HTTP endpoints."""
-        mock_store_class.return_value = mock_store
+        mock_store_class.side_effect = [mock_store, mock_token_store]
 
         await async_setup_entry(mock_hass, mock_config_entry)
 
@@ -112,10 +185,17 @@ class TestAsyncSetupEntry:
     @patch("custom_components.oidc_provider.setup_http_endpoints")
     @patch("custom_components.oidc_provider.async_register_built_in_panel")
     async def test_async_setup_entry_registers_static_paths(
-        self, mock_panel, mock_http, mock_store_class, mock_hass, mock_config_entry, mock_store
+        self,
+        mock_panel,
+        mock_http,
+        mock_store_class,
+        mock_hass,
+        mock_config_entry,
+        mock_store,
+        mock_token_store,
     ):
         """Test async_setup_entry registers static paths."""
-        mock_store_class.return_value = mock_store
+        mock_store_class.side_effect = [mock_store, mock_token_store]
 
         await async_setup_entry(mock_hass, mock_config_entry)
 
@@ -125,10 +205,17 @@ class TestAsyncSetupEntry:
     @patch("custom_components.oidc_provider.setup_http_endpoints")
     @patch("custom_components.oidc_provider.async_register_built_in_panel")
     async def test_async_setup_entry_registers_frontend_panel(
-        self, mock_panel, mock_http, mock_store_class, mock_hass, mock_config_entry, mock_store
+        self,
+        mock_panel,
+        mock_http,
+        mock_store_class,
+        mock_hass,
+        mock_config_entry,
+        mock_store,
+        mock_token_store,
     ):
         """Test async_setup_entry registers frontend panel."""
-        mock_store_class.return_value = mock_store
+        mock_store_class.side_effect = [mock_store, mock_token_store]
 
         await async_setup_entry(mock_hass, mock_config_entry)
 
@@ -142,10 +229,17 @@ class TestAsyncSetupEntry:
     @patch("custom_components.oidc_provider.setup_http_endpoints")
     @patch("custom_components.oidc_provider.async_register_built_in_panel")
     async def test_async_setup_entry_registers_services(
-        self, mock_panel, mock_http, mock_store_class, mock_hass, mock_config_entry, mock_store
+        self,
+        mock_panel,
+        mock_http,
+        mock_store_class,
+        mock_hass,
+        mock_config_entry,
+        mock_store,
+        mock_token_store,
     ):
         """Test async_setup_entry registers all services."""
-        mock_store_class.return_value = mock_store
+        mock_store_class.side_effect = [mock_store, mock_token_store]
 
         await async_setup_entry(mock_hass, mock_config_entry)
 
@@ -188,9 +282,10 @@ class TestRegisterClientService:
         mock_hass,
         mock_config_entry,
         mock_store,
+        mock_token_store,
     ):
         """Test register_client service creates client and notification."""
-        mock_store_class.return_value = mock_store
+        mock_store_class.side_effect = [mock_store, mock_token_store]
         mock_create_client.return_value = {
             "client_id": "test_id",
             "client_secret": "test_secret",
@@ -222,10 +317,17 @@ class TestRegisterClientService:
     @patch("custom_components.oidc_provider.setup_http_endpoints")
     @patch("custom_components.oidc_provider.async_register_built_in_panel")
     async def test_register_client_duplicate_name(
-        self, mock_panel, mock_http, mock_store_class, mock_hass, mock_config_entry, mock_store
+        self,
+        mock_panel,
+        mock_http,
+        mock_store_class,
+        mock_hass,
+        mock_config_entry,
+        mock_store,
+        mock_token_store,
     ):
         """Test register_client service rejects duplicate client names."""
-        mock_store_class.return_value = mock_store
+        mock_store_class.side_effect = [mock_store, mock_token_store]
         mock_store.async_load = AsyncMock(
             return_value={
                 "clients": {"existing_id": {"client_name": "Existing Client", "redirect_uris": []}}
@@ -255,10 +357,17 @@ class TestRevokeClientService:
     @patch("custom_components.oidc_provider.setup_http_endpoints")
     @patch("custom_components.oidc_provider.async_register_built_in_panel")
     async def test_revoke_client_success(
-        self, mock_panel, mock_http, mock_store_class, mock_hass, mock_config_entry, mock_store
+        self,
+        mock_panel,
+        mock_http,
+        mock_store_class,
+        mock_hass,
+        mock_config_entry,
+        mock_store,
+        mock_token_store,
     ):
         """Test revoke_client service removes client."""
-        mock_store_class.return_value = mock_store
+        mock_store_class.side_effect = [mock_store, mock_token_store]
         mock_store.async_load = AsyncMock(
             return_value={"clients": {"test_id": {"client_name": "Test Client"}}}
         )
@@ -278,10 +387,17 @@ class TestRevokeClientService:
     @patch("custom_components.oidc_provider.setup_http_endpoints")
     @patch("custom_components.oidc_provider.async_register_built_in_panel")
     async def test_revoke_client_not_found(
-        self, mock_panel, mock_http, mock_store_class, mock_hass, mock_config_entry, mock_store
+        self,
+        mock_panel,
+        mock_http,
+        mock_store_class,
+        mock_hass,
+        mock_config_entry,
+        mock_store,
+        mock_token_store,
     ):
         """Test revoke_client service handles non-existent client."""
-        mock_store_class.return_value = mock_store
+        mock_store_class.side_effect = [mock_store, mock_token_store]
 
         await async_setup_entry(mock_hass, mock_config_entry)
 
@@ -302,10 +418,17 @@ class TestUpdateClientService:
     @patch("custom_components.oidc_provider.setup_http_endpoints")
     @patch("custom_components.oidc_provider.async_register_built_in_panel")
     async def test_update_client_success(
-        self, mock_panel, mock_http, mock_store_class, mock_hass, mock_config_entry, mock_store
+        self,
+        mock_panel,
+        mock_http,
+        mock_store_class,
+        mock_hass,
+        mock_config_entry,
+        mock_store,
+        mock_token_store,
     ):
         """Test update_client service updates redirect URIs."""
-        mock_store_class.return_value = mock_store
+        mock_store_class.side_effect = [mock_store, mock_token_store]
         mock_store.async_load = AsyncMock(
             return_value={
                 "clients": {
@@ -336,10 +459,17 @@ class TestUpdateClientService:
     @patch("custom_components.oidc_provider.setup_http_endpoints")
     @patch("custom_components.oidc_provider.async_register_built_in_panel")
     async def test_update_client_not_found(
-        self, mock_panel, mock_http, mock_store_class, mock_hass, mock_config_entry, mock_store
+        self,
+        mock_panel,
+        mock_http,
+        mock_store_class,
+        mock_hass,
+        mock_config_entry,
+        mock_store,
+        mock_token_store,
     ):
         """Test update_client service handles non-existent client."""
-        mock_store_class.return_value = mock_store
+        mock_store_class.side_effect = [mock_store, mock_token_store]
 
         await async_setup_entry(mock_hass, mock_config_entry)
 
@@ -365,10 +495,17 @@ class TestListClientsService:
     @patch("custom_components.oidc_provider.setup_http_endpoints")
     @patch("custom_components.oidc_provider.async_register_built_in_panel")
     async def test_list_clients_with_clients(
-        self, mock_panel, mock_http, mock_store_class, mock_hass, mock_config_entry, mock_store
+        self,
+        mock_panel,
+        mock_http,
+        mock_store_class,
+        mock_hass,
+        mock_config_entry,
+        mock_store,
+        mock_token_store,
     ):
         """Test list_clients service lists all clients."""
-        mock_store_class.return_value = mock_store
+        mock_store_class.side_effect = [mock_store, mock_token_store]
         mock_store.async_load = AsyncMock(
             return_value={
                 "clients": {
@@ -401,10 +538,17 @@ class TestListClientsService:
     @patch("custom_components.oidc_provider.setup_http_endpoints")
     @patch("custom_components.oidc_provider.async_register_built_in_panel")
     async def test_list_clients_empty(
-        self, mock_panel, mock_http, mock_store_class, mock_hass, mock_config_entry, mock_store
+        self,
+        mock_panel,
+        mock_http,
+        mock_store_class,
+        mock_hass,
+        mock_config_entry,
+        mock_store,
+        mock_token_store,
     ):
         """Test list_clients service with no clients."""
-        mock_store_class.return_value = mock_store
+        mock_store_class.side_effect = [mock_store, mock_token_store]
 
         await async_setup_entry(mock_hass, mock_config_entry)
 
@@ -425,7 +569,14 @@ class TestKeyPersistence:
         """Test that RSA keys are saved to storage on first setup."""
         mock_config_entry.options = {}
 
-        with patch("custom_components.oidc_provider.Store", return_value=mock_store):
+        mock_token_store = Mock()
+        mock_token_store.async_load = AsyncMock(return_value=None)
+        mock_token_store.async_save = AsyncMock()
+
+        with patch(
+            "custom_components.oidc_provider.Store",
+            side_effect=[mock_store, mock_token_store],
+        ):
             with patch("custom_components.oidc_provider.http.Store", return_value=mock_store):
                 result = await async_setup_entry(mock_hass, mock_config_entry)
 
@@ -462,9 +613,17 @@ class TestKeyPersistence:
             }
         )
         mock_store.async_save = AsyncMock()
+
+        mock_token_store = Mock()
+        mock_token_store.async_load = AsyncMock(return_value=None)
+        mock_token_store.async_save = AsyncMock()
+
         mock_config_entry.options = {}
 
-        with patch("custom_components.oidc_provider.Store", return_value=mock_store):
+        with patch(
+            "custom_components.oidc_provider.Store",
+            side_effect=[mock_store, mock_token_store],
+        ):
             with patch("custom_components.oidc_provider.http.Store", return_value=mock_store):
                 result = await async_setup_entry(mock_hass, mock_config_entry)
 
