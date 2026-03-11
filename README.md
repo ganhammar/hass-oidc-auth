@@ -1,6 +1,6 @@
 # Home Assistant OIDC Provider
 
-A Home Assistant custom component that turns your Home Assistant instance into a fully functional OpenID Connect (OIDC) provider, allowing external applications like Claude Connectors to authenticate against your Home Assistant users.
+A Home Assistant custom component that turns your Home Assistant instance into a fully functional OpenID Connect (OIDC) server, allowing external applications like Claude Connectors to authenticate against your Home Assistant users.
 
 ## Features
 
