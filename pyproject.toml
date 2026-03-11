@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "hass-oidc-provider"
+name = "hass-oidc-server"
 version = "0.1.0"
 description = "OpenID Connect Provider for Home Assistant"
 authors = ["ganhammar"]
