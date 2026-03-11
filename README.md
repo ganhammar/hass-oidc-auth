@@ -1,10 +1,10 @@
-# Home Assistant OIDC Provider
+# Home Assistant OIDC Server
 
 A Home Assistant custom component that turns your Home Assistant instance into a fully functional OpenID Connect (OIDC) server, allowing external applications like Claude Connectors to authenticate against your Home Assistant users.
 
 ## Features
 
-- **Standards-compliant OIDC provider** with discovery endpoint
+- **Standards-compliant OIDC server** with discovery endpoint
 - **Integrates with Home Assistant's native authentication** including TOTP/2FA
 - **JWT-based access tokens** with RSA signing
 - **Support for authorization code flow** with refresh tokens
@@ -117,7 +117,7 @@ Once installed, your Home Assistant instance exposes the following OIDC endpoint
 
 1. Register a client as described above
 2. In Claude, configure a custom connector with:
-   - **OIDC Discovery URL**: `https://your-ha-instance/.well-known/openid-configuration`
+   - **OIDC Discovery URL**: `https://your-ha-instance/oidc/.well-known/openid-configuration`
    - **Client ID**: The generated client ID
    - **Client Secret**: The generated client secret
 3. When prompted, log in with your Home Assistant credentials (TOTP/2FA supported)
